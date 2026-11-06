@@ -107,7 +107,7 @@ public final class Initiative {
 			return null;
 		}
 		// Nothing left to do on its own: ask what next.
-		if (p.order() == PartnerOrder.FOLLOW && brain.nothingToImprove() && ready("idle")) {
+		if (p.order() == PartnerOrder.FOLLOW && !p.strictFollow() && brain.nothingToImprove() && ready("idle")) {
 			ask(owner, "ask_what", List.of(PartnerChat.orderButton("wood", PartnerChat.WOOD), PartnerChat.orderButton("ore", PartnerChat.ORE),
 					PartnerChat.orderButton("guard", PartnerChat.GUARD), PartnerChat.orderButton("free", PartnerChat.FREE), PartnerChat.laterButton()));
 		}

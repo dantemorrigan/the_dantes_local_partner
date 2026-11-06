@@ -1,5 +1,6 @@
 package com.dantemorrigan.partner;
 
+import com.dantemorrigan.partner.ai.Appraisal;
 import com.dantemorrigan.partner.ai.Gear;
 import com.dantemorrigan.partner.ai.PartnerBrain;
 import com.dantemorrigan.partner.compat.InfinityCompat;
@@ -149,7 +150,18 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 		return anchor;
 	}
 
+	/**
+	 * The owner said "follow me" on purpose: stay with them and do nothing else (still fights for both and brings
+	 * food). Without it (the default after summoning, or after a finished task) the partner may develop itself nearby.
+	 */
+	private boolean strictFollow;
+
+	public boolean strictFollow() {
+		return strictFollow;
+	}
+
 	public void setOrder(PartnerOrder newOrder, ServerPlayer by) {
+		this.strictFollow = newOrder == PartnerOrder.FOLLOW;
 		this.order = newOrder;
 		this.anchor = newOrder.anchored() ? by.blockPosition() : null;
 		brain.onOrder(newOrder, by);
@@ -338,13 +350,24 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 			ItemStack rest = (brain.recovering() ? brain.ownerLoot : backpack).addItem(stack.copy());
 			int taken = before - rest.getCount();
 			if (taken <= 0) continue;
+			ItemStack gift = stack.copyWithCount(taken);
 			this.take(item, taken);
 			stack.shrink(taken);
+			if (item.getOwner() instanceof ServerPlayer giver && giver.getUUID().equals(owner) && !brain.recovering()) {
+				pendingGifts.add(gift); // thrown by the owner: appraised below
+			}
 			if (stack.isEmpty()) item.discard();
 			else item.setItem(stack);
 			brain.onPickedUp();
 		}
+		if (!pendingGifts.isEmpty()) {
+			ServerPlayer o = getOwnerPlayer();
+			if (o != null) Appraisal.received(brain, o, new java.util.ArrayList<>(pendingGifts));
+			pendingGifts.clear();
+		}
 	}
+
+	private final java.util.List<ItemStack> pendingGifts = new java.util.ArrayList<>();
 
 	// ------------------------------------------------------------------ owner care, transfer
 
@@ -430,6 +453,7 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 		player.openMenu(new SimpleMenuProvider((id, inv, p) -> ChestMenu.threeRows(id, inv, backpack),
 				Component.translatable("local_partner.backpack.title", this.getDisplayName())));
 		speak("inventory");
+		brain.backpackOpened();
 	}
 
 	@Override
@@ -442,14 +466,16 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 		ItemStack held = player.getItemInHand(hand);
 		if (player.isShiftKeyDown()) {
 			openInventory(sp);
-		} else if (!held.isEmpty() && !InfinityCompat.isProtectedItem(held) && !held.is(Items.NAME_TAG)) {
-			// Hand an item over: it goes straight into the backpack (gear gets equipped on the next check).
+		} else if (!held.isEmpty() && Appraisal.refuses(held)) {
+			speakComponent(PartnerChat.Tone.ALERT, Component.translatable("partner.local_partner.appraise.refuse", held.getHoverName()));
+		} else if (!held.isEmpty() && !held.is(Items.NAME_TAG)) {
+			// Hand an item over: it goes into the backpack, and the partner looks it over (see Appraisal).
 			ItemStack rest = backpack.addItem(held.copy());
 			int given = held.getCount() - rest.getCount();
 			if (given > 0) {
+				ItemStack gift = held.copyWithCount(given);
 				held.shrink(given);
-				speak("thanks");
-				brain.onPickedUp();
+				Appraisal.received(brain, sp, java.util.List.of(gift));
 			} else speak("full");
 		} else if (held.is(Items.NAME_TAG)) {
 			return super.mobInteract(player, hand);
@@ -549,6 +575,12 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 		return PartnerChat.line(partner, PartnerChat.Tone.INFO, message);
 	}
 
+	/** A line with an explicit tone and an already built message. */
+	public void speakComponent(PartnerChat.Tone tone, Component message) {
+		ServerPlayer p = getOwnerPlayer();
+		if (p != null) p.sendSystemMessage(PartnerChat.line(this, tone, message));
+	}
+
 	/** A short line in the owner's chat, styled by its kind (see {@link PartnerChat}). */
 	public void speak(String key, Object... args) {
 		ServerPlayer p = getOwnerPlayer();
@@ -611,6 +643,7 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 		super.addAdditionalSaveData(output);
 		if (owner != null) output.store("Owner", UUIDUtil.CODEC, owner);
 		output.putString("Order", order.id);
+		output.putBoolean("Strict", strictFollow);
 		if (anchor != null) output.store("Anchor", BlockPos.CODEC, anchor);
 		output.putInt("Skin", this.entityData.get(DATA_SKIN));
 		output.putInt("Food", food);
@@ -625,6 +658,7 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 	protected void readAdditionalSaveData(ValueInput input) {
 		super.readAdditionalSaveData(input);
 		owner = input.read("Owner", UUIDUtil.CODEC).orElse(null);
+		strictFollow = input.getBooleanOr("Strict", false);
 		PartnerOrder o = PartnerOrder.byId(input.getStringOr("Order", "follow"));
 		order = o == null || o.oneShot() ? PartnerOrder.FOLLOW : o;
 		anchor = input.read("Anchor", BlockPos.CODEC).orElse(null);

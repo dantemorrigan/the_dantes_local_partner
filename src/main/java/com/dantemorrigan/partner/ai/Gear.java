@@ -92,6 +92,11 @@ public final class Gear {
 		return best;
 	}
 
+	/** A small bonus for enchanted gear, so it is preferred over a plain item of the same tier. */
+	public static double enchantBonus(ItemStack s) {
+		return s.isEnchanted() ? 1.0 : 0.0;
+	}
+
 	public static double attackDamage(ItemStack s) {
 		ItemAttributeModifiers mods = s.getOrDefault(DataComponents.ATTRIBUTE_MODIFIERS, ItemAttributeModifiers.EMPTY);
 		return mods.compute(Attributes.ATTACK_DAMAGE, 1.0, EquipmentSlot.MAINHAND);
@@ -175,7 +180,7 @@ public final class Gear {
 	}
 
 	public static void holdWeapon(PartnerEntity p) {
-		hold(p, s -> s.isEmpty() ? 1.0 : (isSword(s) || isAxe(s)) ? attackDamage(s) + (isSword(s) ? 0.5 : 0) : 0.5);
+		hold(p, s -> s.isEmpty() ? 1.0 : (isSword(s) || isAxe(s)) ? attackDamage(s) + (isSword(s) ? 0.5 : 0) + enchantBonus(s) * 0.5 : 0.5);
 	}
 
 	public static void holdToolFor(PartnerEntity p, BlockState state) {
@@ -210,7 +215,7 @@ public final class Gear {
 			if (!isArmor(s)) continue;
 			EquipmentSlot slot = s.get(DataComponents.EQUIPPABLE).slot();
 			ItemStack worn = p.getItemBySlot(slot);
-			if (armorValue(s) <= armorValue(worn)) continue;
+			if (armorValue(s) + enchantBonus(s) <= armorValue(worn) + enchantBonus(worn)) continue;
 			p.setItemSlot(slot, c.removeItemNoUpdate(i));
 			if (!worn.isEmpty()) c.setItem(i, worn);
 		}

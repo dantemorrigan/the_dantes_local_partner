@@ -68,6 +68,10 @@ public final class PartnerBrain {
 	private int recoverTicks;
 
 	private @Nullable Job job;
+	/** Lines to say a bit later (appraisal of several gifts, one after another). */
+	private final java.util.ArrayList<Object[]> later = new java.util.ArrayList<>();
+	/** The backpack screen is open: what was inside when it opened, to see what the owner put in. */
+	private @Nullable Map<net.minecraft.world.item.Item, Integer> watchBaseline;
 	/** Short progress detail for the HUD ("7/16", "Y 23 → 16"...), set by the running job. */
 	public String detail = "";
 	private final Map<String, Integer> reportAt = new HashMap<>();
@@ -188,6 +192,8 @@ public final class PartnerBrain {
 			return;
 		}
 		if (survive(level, owner)) return;
+		runLater();
+		watchBackpack(owner);
 		if (parkour.tickAir(p)) return; // mid-jump: let it land
 		if (sleep(level, owner)) return;
 		if (p.tickCount % 40 == 0) checkEra();
@@ -199,6 +205,7 @@ public final class PartnerBrain {
 		lightTheWay(level, owner);
 		if (p.tickCount % 20 == 0) {
 			Job own = initiative.think(level, owner, job != null && !selfJob);
+			if (p.strictFollow()) own = null; // told to follow: no side trips (the question or warning was still sent)
 			if (own != null && (job == null || selfJob)) {
 				stopJob(level);
 				job = own;
@@ -661,7 +668,7 @@ public final class PartnerBrain {
 			case WOOD, ORE, GIVE -> p.setOrderQuiet(PartnerOrder.FOLLOW);
 			default -> {
 				// Following and the owner is busy in one place: use the time to grow (gear, food, ore).
-				if (calmTicks >= 20 * 4 && !inFight() && p.tickCount % 20 == 0 && !AutoJob.nothingToDo(this)) {
+				if (!p.strictFollow() && calmTicks >= 20 * 4 && !inFight() && p.tickCount % 20 == 0 && !AutoJob.nothingToDo(this)) {
 					job = new AutoJob();
 					selfJob = true;
 					selfAnchor = owner.position();
@@ -900,6 +907,67 @@ public final class PartnerBrain {
 
 	public boolean sleeping() {
 		return sleeping;
+	}
+
+	/** Runs {@code r} after {@code ticks} ticks. */
+	public void later(Runnable r, int ticks) {
+		later.add(new Object[]{p.tickCount + ticks, r});
+	}
+
+	private void runLater() {
+		for (int i = 0; i < later.size(); i++) {
+			Object[] e = later.get(i);
+			if ((int) e[0] <= p.tickCount) {
+				later.remove(i--);
+				((Runnable) e[1]).run();
+			}
+		}
+	}
+
+	/** The owner opened the partner's backpack: remember what is in it. */
+	public void backpackOpened() {
+		java.util.HashMap<net.minecraft.world.item.Item, Integer> m = new java.util.HashMap<>();
+		for (int i = 0; i < p.backpack().getContainerSize(); i++) {
+			ItemStack s = p.backpack().getItem(i);
+			if (!s.isEmpty()) m.merge(s.getItem(), s.getCount(), Integer::sum);
+		}
+		watchBaseline = m;
+	}
+
+	/** When the backpack screen closes: whatever was added is a gift (or refused if it is not for the partner). */
+	private void watchBackpack(ServerPlayer owner) {
+		if (watchBaseline == null || owner.containerMenu != owner.inventoryMenu) return;
+		var before = watchBaseline;
+		watchBaseline = null;
+		java.util.List<ItemStack> gifts = new java.util.ArrayList<>();
+		java.util.List<ItemStack> refused = new java.util.ArrayList<>();
+		var bag = p.backpack();
+		java.util.HashMap<net.minecraft.world.item.Item, Integer> now = new java.util.HashMap<>();
+		for (int i = 0; i < bag.getContainerSize(); i++) {
+			ItemStack s = bag.getItem(i);
+			if (!s.isEmpty()) now.merge(s.getItem(), s.getCount(), Integer::sum);
+		}
+		for (var e : now.entrySet()) {
+			int added = e.getValue() - before.getOrDefault(e.getKey(), 0);
+			if (added <= 0) continue;
+			ItemStack sample = new ItemStack(e.getKey(), added);
+			for (int i = 0; i < bag.getContainerSize(); i++) {
+				if (bag.getItem(i).is(e.getKey())) {
+					sample = bag.getItem(i).copyWithCount(added);
+					break;
+				}
+			}
+			if (Appraisal.refuses(sample)) {
+				Gear.take(bag, s -> s.is(e.getKey()), added);
+				refused.add(sample);
+			} else gifts.add(sample);
+		}
+		for (ItemStack r : refused) {
+			p.giveTo(owner, r);
+			p.speakComponent(com.dantemorrigan.partner.PartnerChat.Tone.ALERT,
+					Component.translatable("partner.local_partner.appraise.refuse", r.getHoverName()));
+		}
+		if (!gifts.isEmpty()) Appraisal.received(this, owner, gifts);
 	}
 
 	public void say(String key, Object... args) {
