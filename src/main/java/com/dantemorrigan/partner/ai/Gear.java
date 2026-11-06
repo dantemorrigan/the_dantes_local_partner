@@ -182,9 +182,29 @@ public final class Gear {
 		hold(p, s -> isTool(s) || s.isEmpty() ? toolScore(s, state) - (isSword(s) ? 0.6 : 0) : 0.1);
 	}
 
-	/** Puts on the best armor from the backpack. */
+	public static boolean isShield(ItemStack s) {
+		return s.is(Items.SHIELD);
+	}
+
+	public static boolean isBow(ItemStack s) {
+		return s.is(Items.BOW);
+	}
+
+	public static int arrows(PartnerEntity p) {
+		return count(p.backpack(), s -> s.is(Items.ARROW));
+	}
+
+	/** Puts on the best armor from the backpack, and a shield in the off hand. */
 	public static void equipArmor(PartnerEntity p) {
 		SimpleContainer c = p.backpack();
+		if (p.getOffhandItem().isEmpty() && !p.isEating()) {
+			for (int i = 0; i < c.getContainerSize(); i++) {
+				if (isShield(c.getItem(i))) {
+					p.setItemSlot(EquipmentSlot.OFFHAND, c.removeItemNoUpdate(i));
+					break;
+				}
+			}
+		}
 		for (int i = 0; i < c.getContainerSize(); i++) {
 			ItemStack s = c.getItem(i);
 			if (!isArmor(s)) continue;

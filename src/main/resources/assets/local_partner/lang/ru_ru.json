@@ -117,5 +117,8 @@
   "partner.local_partner.activity.ore": "добывает руду",
   "partner.local_partner.activity.stairs": "копает вниз",
   "partner.local_partner.activity.hunt": "охотится",
-  "partner.local_partner.activity.free": "занят своими делами"
+  "partner.local_partner.activity.free": "занят своими делами",
+  "partner.local_partner.say.recovering": "Ты погиб! Соберу твои вещи.",
+  "partner.local_partner.say.recovered": "Вот твои вещи — всё, что нашёл.",
+  "partner.local_partner.activity.recover": "собирает твои вещи"
 }

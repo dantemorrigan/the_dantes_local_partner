@@ -53,6 +53,8 @@ public final class Crafting {
 		add(Items.IRON_LEGGINGS, 1, true, need(IRON, 7, Items.IRON_INGOT));
 		add(Items.IRON_BOOTS, 1, true, need(IRON, 4, Items.IRON_INGOT));
 		add(Items.SHIELD, 1, true, need(PLANKS, 6, Items.OAK_PLANKS), need(IRON, 1, Items.IRON_INGOT));
+		add(Items.BOW, 1, true, need(STICK, 3, Items.STICK), need(s -> s.is(Items.STRING), 3, Items.STRING));
+		add(Items.ARROW, 4, true, need(s -> s.is(Items.FLINT), 1, Items.FLINT), need(STICK, 1, Items.STICK), need(s -> s.is(Items.FEATHER), 1, Items.FEATHER));
 		add(Items.DIAMOND_PICKAXE, 1, true, need(DIAMOND, 3, Items.DIAMOND), need(STICK, 2, Items.STICK));
 		add(Items.DIAMOND_SWORD, 1, true, need(DIAMOND, 2, Items.DIAMOND), need(STICK, 1, Items.STICK));
 		add(Items.DIAMOND_HELMET, 1, true, need(DIAMOND, 5, Items.DIAMOND));

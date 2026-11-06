@@ -117,5 +117,8 @@
   "partner.local_partner.activity.ore": "mining ore",
   "partner.local_partner.activity.stairs": "digging down",
   "partner.local_partner.activity.hunt": "hunting",
-  "partner.local_partner.activity.free": "doing their own thing"
+  "partner.local_partner.activity.free": "doing their own thing",
+  "partner.local_partner.say.recovering": "You died! I'll gather your things.",
+  "partner.local_partner.say.recovered": "Here are your things, everything I found.",
+  "partner.local_partner.activity.recover": "gathering your things"
 }

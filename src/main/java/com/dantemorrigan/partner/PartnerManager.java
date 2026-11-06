@@ -62,6 +62,11 @@ public final class PartnerManager {
 		ServerTickEvents.END_SERVER_TICK.register(PartnerManager::tick);
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, s) -> stash(handler.getPlayer(), false));
 		ServerEntityLevelChangeEvents.AFTER_PLAYER_CHANGE_LEVEL.register((player, from, to) -> ownerChangedLevel(player, to));
+		net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> {
+			if (!(entity instanceof ServerPlayer owner) || owner.level().getGameRules().get(net.minecraft.world.level.gamerules.GameRules.KEEP_INVENTORY)) return;
+			PartnerEntity p = find(owner);
+			if (p != null && p.level() == owner.level() && p.isAlive()) p.brain().onOwnerDied(owner.blockPosition());
+		});
 		ServerPlayerEvents.AFTER_RESPAWN.register((oldPlayer, player, alive) -> {
 			PartnerEntity p = find(player);
 			if (p != null && !p.isRemoved()) p.onOwnerRespawned(player);

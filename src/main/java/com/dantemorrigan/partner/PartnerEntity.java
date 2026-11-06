@@ -248,6 +248,13 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 	private void startEating() {
 		int slot = Gear.bestFoodSlot(backpack, 20 - food);
 		if (slot < 0) return;
+		ItemStack offhand = this.getOffhandItem();
+		if (!offhand.isEmpty()) {
+			// The shield goes back into the backpack while eating (re-equipped by the gear check afterwards).
+			if (!backpack.canAddItem(offhand)) return;
+			if (this.isUsingItem()) this.stopUsingItem();
+			backpack.addItem(offhand);
+		}
 		eatingStack = backpack.removeItem(slot, 1);
 		this.setItemSlot(EquipmentSlot.OFFHAND, eatingStack.copy());
 		eating = 32;
@@ -263,6 +270,7 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 		this.playSound(SoundEvents.PLAYER_BURP, 0.5f, 1f);
 		eatingStack = ItemStack.EMPTY;
 		this.setItemSlot(EquipmentSlot.OFFHAND, ItemStack.EMPTY);
+		brain.onPickedUp(); // re-equip the shield
 	}
 
 	/** Items lying around get collected into the backpack, like a player walking over them. */
@@ -273,7 +281,7 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 			ItemStack stack = item.getItem();
 			if (InfinityCompat.isProtectedItem(stack) || !brain.wantsItem(stack)) continue;
 			int before = stack.getCount();
-			ItemStack rest = backpack.addItem(stack.copy());
+			ItemStack rest = (brain.recovering() ? brain.ownerLoot : backpack).addItem(stack.copy());
 			int taken = before - rest.getCount();
 			if (taken <= 0) continue;
 			this.take(item, taken);
@@ -301,6 +309,7 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 
 	/** Hands over the backpack (and with {@code gearToo}, everything it wears and holds). */
 	public void handEverythingTo(Player player, boolean gearToo) {
+		for (ItemStack s : brain.ownerLoot.removeAllItems()) giveTo(player, s);
 		for (int i = 0; i < backpack.getContainerSize(); i++) {
 			ItemStack s = backpack.getItem(i);
 			if (s.isEmpty()) continue;
@@ -383,6 +392,7 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 	protected void dropEquipment(ServerLevel level) {
 		if (level.getGameRules().get(GameRules.KEEP_INVENTORY)) return; // keeps everything, like a player
 		for (ItemStack s : backpack.removeAllItems()) this.spawnAtLocation(level, s);
+		for (ItemStack s : brain.ownerLoot.removeAllItems()) this.spawnAtLocation(level, s);
 		for (EquipmentSlot slot : EquipmentSlot.values()) {
 			if (slot.getType() == EquipmentSlot.Type.ANIMAL_ARMOR || slot == EquipmentSlot.SADDLE) continue;
 			ItemStack s = this.getItemBySlot(slot);
@@ -419,6 +429,7 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 	}
 
 	public void onOwnerRespawned(ServerPlayer player) {
+		if (brain.recovering()) return; // finishes collecting their things first, then comes over
 		if (player.level() != this.level()) {
 			PartnerManager.travel(player);
 			return;

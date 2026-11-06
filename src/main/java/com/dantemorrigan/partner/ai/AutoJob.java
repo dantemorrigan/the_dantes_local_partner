@@ -133,6 +133,12 @@ public final class AutoJob implements Job {
 		if (Gear.count(c, Items.FURNACE) == 0 && Gear.count(c, s -> s.is(ItemTags.STONE_TOOL_MATERIALS)) >= 8) announce(brain, Items.FURNACE);
 		armor(brain, Items.DIAMOND, new Item[]{Items.DIAMOND_CHESTPLATE, Items.DIAMOND_LEGGINGS, Items.DIAMOND_HELMET, Items.DIAMOND_BOOTS});
 		armor(brain, Items.IRON_INGOT, new Item[]{Items.IRON_CHESTPLATE, Items.IRON_LEGGINGS, Items.IRON_HELMET, Items.IRON_BOOTS});
+		// Shield once the iron armor is covered; bow and arrows from what the hunts and fights drop.
+		if (!Gear.has(p, Gear::isShield) && Gear.count(c, Items.IRON_INGOT) > ironWanted(p)) announce(brain, Items.SHIELD);
+		if (!Gear.has(p, Gear::isBow) && Gear.count(c, Items.STRING) >= 3) announce(brain, Items.BOW);
+		for (int i = 0; i < 4 && Gear.arrows(p) < 32 && Gear.has(p, Gear::isBow); i++) {
+			if (!Crafting.craft(p, Items.ARROW)) break;
+		}
 		if (Gear.count(c, Items.TORCH) < 8 && Gear.count(c, s -> s.is(ItemTags.COALS)) > 2) Crafting.craft(p, Items.TORCH);
 		Gear.equipArmor(p);
 	}

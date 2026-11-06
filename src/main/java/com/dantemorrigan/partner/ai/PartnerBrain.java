@@ -59,6 +59,11 @@ public final class PartnerBrain {
 	/** Free-mode steps that failed recently (step key → tick when it may be tried again). */
 	public final Map<String, Integer> autoBlocked = new HashMap<>();
 
+	/** The owner's own things picked up after their death: kept apart from the partner's gear, all handed back. */
+	public final net.minecraft.world.SimpleContainer ownerLoot = new net.minecraft.world.SimpleContainer(54);
+	private @Nullable BlockPos deathPos;
+	private int recoverTicks;
+
 	private @Nullable Job job;
 	private @Nullable LivingEntity target;
 	private int targetTicks, unreachableTicks, attackCooldown, retreat, repath;
@@ -94,6 +99,19 @@ public final class PartnerBrain {
 		}
 	}
 
+	public void onOwnerDied(BlockPos where) {
+		stopJob((ServerLevel) p.level());
+		target = null;
+		deathPos = where.immutable();
+		recoverTicks = 20 * 60;
+		say("recovering");
+	}
+
+	/** While collecting the owner's things, pickups go to {@link #ownerLoot}. */
+	public boolean recovering() {
+		return deathPos != null && recoverTicks > 0;
+	}
+
 	public void onPickedUp() {
 		gearDirty = true;
 	}
@@ -105,13 +123,13 @@ public final class PartnerBrain {
 	}
 
 	public boolean wantsItem(ItemStack stack) {
-		return p.backpack().canAddItem(stack);
+		return recovering() ? ownerLoot.canAddItem(stack) : p.backpack().canAddItem(stack);
 	}
 
 	/** What the partner keeps when handing loot over: its tools, armor, a table, a furnace, torches and some food. */
 	public boolean keepsForItself(ItemStack s, int slot) {
 		if (Gear.isTool(s) || Gear.isArmor(s) || s.is(Items.CRAFTING_TABLE) || s.is(Items.FURNACE)
-				|| s.is(Items.TORCH) || s.is(Items.SHIELD)) return true;
+				|| s.is(Items.TORCH) || s.is(Items.SHIELD) || s.is(Items.BOW) || s.is(Items.ARROW)) return true;
 		if (Gear.isFood(s)) {
 			int before = 0;
 			for (int i = 0; i < slot; i++) if (Gear.isFood(p.backpack().getItem(i))) before += p.backpack().getItem(i).getCount();
@@ -143,11 +161,13 @@ public final class PartnerBrain {
 			p.setActivity("waiting");
 			return;
 		}
+		if (recovering() && recover(level, owner)) return; // even if the owner already respawned elsewhere
 		if (owner.level() != p.level()) {
 			if (!InfinityCompat.partnerWaitsOutside(owner.level().dimension())) PartnerManager.travel(owner);
 			return;
 		}
 		if (survive(level, owner)) return;
+		if (recover(level, owner)) return;
 		if (stayTogether(level, owner)) return;
 		if (protect(level, owner)) return;
 		if (care(level, owner)) return;
@@ -178,6 +198,53 @@ public final class PartnerBrain {
 			return true;
 		}
 		return false;
+	}
+
+	// ------------------------------------------------------------------ 1b. the owner died: save their things
+
+	private boolean recover(ServerLevel level, ServerPlayer owner) {
+		if (recovering()) {
+			recoverTicks--;
+			raiseShield(false);
+			Vec3 center = Vec3.atCenterOf(deathPos);
+			boolean more = collectDrops(level, center, 10);
+			if (!more && p.position().distanceToSqr(center) > 9) {
+				if (p.tickCount % 10 == 0 || p.getNavigation().isDone()) p.getNavigation().moveTo(center.x, center.y, center.z, PartnerEntity.CATCH_UP);
+				if (p.position().distanceToSqr(center) > 64 * 64 && teleportCooldown == 0) {
+					p.snapTo(center.x, center.y, center.z, p.getYRot(), p.getXRot());
+					teleportCooldown = 40;
+				}
+				more = true;
+			}
+			// Done when nothing is left around the spot (or time is up) and the owner is back.
+			if (!more && owner.isAlive()) recoverTicks = 0;
+			if (recoverTicks > 0 || !owner.isAlive()) {
+				p.setActivity("recover");
+				return true;
+			}
+			deathPos = null;
+		}
+		if (!owner.isAlive()) {
+			p.setActivity("waiting");
+			p.getNavigation().stop();
+			return true;
+		}
+		if (ownerLoot.isEmpty()) return false;
+		// Bring everything back.
+		p.setActivity("returning");
+		if (p.distanceTo(owner) > FOLLOW_TELEPORT && teleportCooldown == 0) teleportHome(owner, null);
+		if (p.distanceTo(owner) > 2.5) {
+			walkTo(owner, PartnerEntity.CATCH_UP);
+			trackStuck(owner, 2.5);
+			return true;
+		}
+		for (int i = 0; i < ownerLoot.getContainerSize(); i++) {
+			ItemStack s = ownerLoot.removeItemNoUpdate(i);
+			if (!s.isEmpty()) p.giveTo(owner, s);
+		}
+		ownerLoot.setChanged();
+		say("recovered");
+		return true;
 	}
 
 	// ------------------------------------------------------------------ 2. stay together
@@ -242,7 +309,10 @@ public final class PartnerBrain {
 
 	private boolean protect(ServerLevel level, ServerPlayer owner) {
 		if (p.tickCount % 5 == 0 || target == null || !target.isAlive()) pickTarget(level, owner);
-		if (target == null) return false;
+		if (target == null) {
+			raiseShield(false);
+			return false;
+		}
 		breaker.cancel(level, p);
 		fight(level, owner, target);
 		return true;
@@ -315,16 +385,25 @@ public final class PartnerBrain {
 	private void fight(ServerLevel level, ServerPlayer owner, LivingEntity t) {
 		targetTicks++;
 		p.setActivity(InfinityCompat.isBoss(t) ? "fight_boss" : "fight");
+		p.getLookControl().setLookAt(t, 30f, 30f);
 		if (t instanceof Creeper c && (c.getSwellDir() > 0 || c.isIgnited())) {
-			// Back off from a hissing creeper instead of eating the explosion.
+			// Back off from a hissing creeper (shield up if there is one) instead of eating the explosion.
 			Vec3 away = p.position().subtract(c.position()).normalize().scale(6).add(p.position());
 			p.getNavigation().moveTo(away.x, away.y, away.z, PartnerEntity.CATCH_UP);
+			raiseShield(true);
 			return;
 		}
-		if (p.tickCount % 10 == 0 || p.getMainHandItem().isEmpty()) Gear.holdWeapon(p);
-		p.getLookControl().setLookAt(t, 30f, 30f);
 		double reachSqr = 3.0 * 3.0;
 		double distSqr = t.getBoundingBox().distanceToSqr(p.getEyePosition());
+		boolean flying = t.isNoGravity() || t instanceof net.minecraft.world.entity.monster.Phantom
+				|| t instanceof net.minecraft.world.entity.monster.Blaze || t.getY() - p.getY() > 3 && !t.onGround();
+		boolean canShoot = Gear.arrows(p) > 0 && Gear.has(p, Gear::isBow) && distSqr < 26 * 26 && p.hasLineOfSight(t);
+		if (canShoot && (flying || unreachableTicks > 40)) {
+			shoot(level, t, distSqr);
+			return;
+		}
+		bowCharge = 0;
+		if (p.tickCount % 10 == 0 || p.getMainHandItem().isEmpty() || Gear.isBow(p.getMainHandItem())) Gear.holdWeapon(p);
 		if (distSqr > reachSqr * 0.6 || --repath <= 0) {
 			if (repath <= 0) repath = 10;
 			boolean moving = p.getNavigation().moveTo(t, PartnerEntity.SPRINT);
@@ -332,12 +411,17 @@ public final class PartnerBrain {
 		}
 		if (p.getNavigation().isDone() && distSqr > reachSqr) unreachableTicks++;
 		else if (distSqr <= reachSqr) unreachableTicks = 0;
-		if (unreachableTicks > 100) {
+		if (unreachableTicks > 100 && !canShoot) {
 			ignoredTargets.put(t.getId(), p.tickCount + 300);
 			target = null;
+			raiseShield(false);
 			return;
 		}
-		if (distSqr <= reachSqr && attackCooldown <= 0 && p.hasLineOfSight(t)) {
+		boolean swingNow = distSqr <= reachSqr && attackCooldown <= 0 && p.hasLineOfSight(t);
+		// Shield up between swings while something can hit us (melee in reach, or a shooter looking at us).
+		boolean shooter = t instanceof net.minecraft.world.entity.monster.RangedAttackMob;
+		raiseShield(!swingNow && (distSqr <= 16 || shooter && distSqr < 400 && t.hasLineOfSight(p)));
+		if (swingNow) {
 			p.swing(InteractionHand.MAIN_HAND);
 			p.doHurtTarget(level, t);
 			p.causeExhaustion(0.1f);
@@ -345,6 +429,34 @@ public final class PartnerBrain {
 			ItemStack weapon = p.getMainHandItem();
 			if (Gear.isTool(weapon) && !Gear.isSword(weapon) && !Gear.isAxe(weapon)) weapon.hurtAndBreak(1, p, net.minecraft.world.entity.EquipmentSlot.MAINHAND);
 		}
+	}
+
+	private int bowCharge;
+
+	/** Bow for what the sword cannot reach: flyers, mobs on ledges, across water. Arrows are real and can be picked up. */
+	private void shoot(ServerLevel level, LivingEntity t, double distSqr) {
+		raiseShield(false);
+		if (!Gear.isBow(p.getMainHandItem())) Gear.hold(p, s -> Gear.isBow(s) ? 10 : 0);
+		if (distSqr > 18 * 18) {
+			if (p.tickCount % 10 == 0) p.getNavigation().moveTo(t, PartnerEntity.WALK);
+		} else p.getNavigation().stop();
+		if (++bowCharge < 20 || !p.hasLineOfSight(t)) return;
+		bowCharge = 0;
+		ItemStack bow = p.getMainHandItem();
+		if (Gear.take(p.backpack(), s -> s.is(Items.ARROW), 1) == 0) return;
+		var arrow = net.minecraft.world.entity.projectile.ProjectileUtil.getMobArrow(p, new ItemStack(Items.ARROW), 1.0f, bow);
+		arrow.pickup = net.minecraft.world.entity.projectile.arrow.AbstractArrow.Pickup.ALLOWED;
+		double dx = t.getX() - p.getX(), dy = t.getY(0.3333) - arrow.getY(), dz = t.getZ() - p.getZ();
+		double flat = Math.sqrt(dx * dx + dz * dz);
+		net.minecraft.world.entity.projectile.Projectile.spawnProjectileUsingShoot(arrow, level, new ItemStack(Items.ARROW), dx, dy + flat * 0.2, dz, 1.6f, 2f);
+		p.playSound(net.minecraft.sounds.SoundEvents.ARROW_SHOOT, 1f, 1f / (p.getRandom().nextFloat() * 0.4f + 0.8f));
+		bow.hurtAndBreak(1, p, net.minecraft.world.entity.EquipmentSlot.MAINHAND);
+	}
+
+	private void raiseShield(boolean up) {
+		boolean has = Gear.isShield(p.getOffhandItem());
+		if (up && has && !p.isUsingItem()) p.startUsingItem(InteractionHand.OFF_HAND);
+		else if ((!up || !has) && p.isUsingItem() && Gear.isShield(p.getUseItem())) p.stopUsingItem();
 	}
 
 	// ------------------------------------------------------------------ 4. care
@@ -541,9 +653,11 @@ public final class PartnerBrain {
 
 	public void save(ValueOutput out) {
 		smelter.save(out);
+		if (!ownerLoot.isEmpty()) ownerLoot.storeAsItemList(out.list("OwnerLoot", ItemStack.CODEC));
 	}
 
 	public void load(ValueInput in) {
 		smelter.load(in);
+		in.list("OwnerLoot", ItemStack.CODEC).ifPresent(ownerLoot::fromItemList);
 	}
 }
