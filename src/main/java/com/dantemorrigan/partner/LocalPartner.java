@@ -23,6 +23,10 @@ public final class LocalPartner implements ModInitializer {
 			EntityType.Builder.<PartnerEntity>of(PartnerEntity::new, MobCategory.MISC)
 					.sized(0.6f, 1.8f).eyeHeight(1.62f).clientTrackingRange(10).noSummon().build(PARTNER_KEY));
 
+	/** Keeps the chunks around a roaming partner loaded and ticking while no player is near (refreshed every second). */
+	public static final net.minecraft.server.level.TicketType ROAM_TICKET = Registry.register(BuiltInRegistries.TICKET_TYPE, id("roaming_partner"),
+			new net.minecraft.server.level.TicketType(60L, 2 | 4 | 8));
+
 	public static Identifier id(String path) {
 		return Identifier.fromNamespaceAndPath(MOD_ID, path);
 	}

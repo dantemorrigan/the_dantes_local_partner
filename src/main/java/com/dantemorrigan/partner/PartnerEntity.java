@@ -199,6 +199,10 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 	public void tick() {
 		super.tick();
 		if (this.level().isClientSide()) return;
+		if (this.tickCount % 20 == 5 && this.level() instanceof ServerLevel sl && sl.getNearestPlayer(this, 96) == null) {
+			// Roaming far from everyone: keep its surroundings loaded, like a player would.
+			sl.getChunkSource().addTicketWithRadius(LocalPartner.ROAM_TICKET, this.chunkPosition(), 2);
+		}
 		if (this.tickCount % 20 == 1 && !PartnerManager.isCurrent(this)) {
 			// A stale copy (an older save that came back with a chunk): the real partner lives elsewhere.
 			this.discard();

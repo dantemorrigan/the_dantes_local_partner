@@ -42,7 +42,7 @@
   "local_partner.command.patrol": "Патрулируй",
   "local_partner.command.patrol.desc": "Патрулируй вокруг этого места.",
   "local_partner.command.free": "Свободен",
-  "local_partner.command.free.desc": "Сам выбирай, чем заняться.",
+  "local_partner.command.free.desc": "Гуляй до 500 блоков, развивайся сам, возвращайся, когда устанешь.",
   "entity.local_partner.partner": "Напарник",
   "entity.local_partner.partner.name": "Напарник",
   "key.local_partner.wheel": "Колесо команд напарника",
@@ -184,5 +184,18 @@
   "partner.local_partner.plan.stock_food": "запастись едой",
   "partner.local_partner.plan.stock_coal": "запастись углём для факелов",
   "partner.local_partner.plan.prospect": "поискать руду в округе",
-  "partner.local_partner.say.leave_base": "Тут ваша база — копать не буду, отойду подальше."
+  "partner.local_partner.say.leave_base": "Тут ваша база — копать не буду, отойду подальше.",
+  "partner.local_partner.say.came_on_call": "Иду на зов! Уже рядом.",
+  "partner.local_partner.say.tired": "Я устал — пора домой.",
+  "partner.local_partner.say.tired_teleport": "Возвращаюсь к тебе.",
+  "partner.local_partner.say.going_home": "Иду домой, до кровати %s бл.",
+  "partner.local_partner.say.home_arrived": "Я дома, жду тебя.",
+  "partner.local_partner.say.resting": "Отдохну немного рядом с тобой.",
+  "partner.local_partner.say.rested": "Отдохнул — снова в путь!",
+  "partner.local_partner.say.explore": "Тут всё выработано — иду исследовать новое место (%s бл.).",
+  "partner.local_partner.activity.explore": "исследует округу",
+  "partner.local_partner.activity.going_home": "идёт домой",
+  "partner.local_partner.activity.home_wait": "ждёт дома",
+  "partner.local_partner.activity.resting": "отдыхает рядом",
+  "partner.local_partner.plan.explore": "исследовать новое место"
 }

@@ -54,7 +54,14 @@ public final class AutoJob implements Job {
 			craftUpgrades(brain);
 			var crafts = plannedCrafts(brain);
 			if (!crafts.isEmpty() && start(brain, "craft", new CraftJob(crafts, true))) return Status.RUNNING;
-			if (!choose(brain)) {
+			if (!choose(brain) && brain.p.order() == com.dantemorrigan.partner.PartnerOrder.FREE && brain.p.getOwnerPlayer() != null) {
+				// Nothing to do around here: go and explore a new area, then try everything again there.
+				step = ExploreJob.newArea(brain, brain.p.getOwnerPlayer(), PartnerBrain.ROAM_RADIUS);
+				stepKey = "explore";
+				brain.autoBlocked.keySet().removeIf(k -> !k.startsWith("stock") && !k.equals("prospect") && !k.equals("explore"));
+				return Status.RUNNING;
+			}
+			if (step == null && !choose(brain)) {
 				idle = 20 * 30; // nothing to do: stay with the owner for a while
 				stepKey = "idle";
 			}

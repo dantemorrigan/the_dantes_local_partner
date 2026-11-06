@@ -49,7 +49,8 @@ import java.util.Set;
  * </ol>
  */
 public final class PartnerBrain {
-	public static final int FOLLOW_TELEPORT = 32, WORK_LEASH = 56, FAR_TELEPORT = 112;
+	public static final int FOLLOW_TELEPORT = 32, WORK_LEASH = 56, FAR_TELEPORT = 112, ROAM_RADIUS = 500, ROAM_TIRED = 20 * 60 * 12;
+	private int roamStart = -1, restUntil;
 
 	public final PartnerEntity p;
 	public final BlockBreaker breaker = new BlockBreaker();
@@ -96,8 +97,16 @@ public final class PartnerBrain {
 			case WOOD -> job = new ChopJob(16);
 			case ORE -> job = new MineJob(WorldScan.OreKind.ANY, 12);
 			case GIVE -> job = new GiveJob(false);
-			case FREE -> job = new AutoJob();
+			case FREE -> {
+				job = new AutoJob();
+				roamStart = p.tickCount;
+				restUntil = 0;
+			}
 			default -> {}
+		}
+		// Called back from far away (roaming): come at once.
+		if ((order == PartnerOrder.FOLLOW || order == PartnerOrder.GUARD) && p.distanceTo(by) > 48 && p.level() == by.level()) {
+			teleportHome(by, "came_on_call");
 		}
 		if (order == PartnerOrder.PATROL && p.anchor() != null) PartnerFx.patrolMark(p, p.anchor());
 		PartnerFx.accepted(p);
@@ -209,6 +218,20 @@ public final class PartnerBrain {
 		} else calmTicks += 20;
 	}
 
+	/** Off on its own in free mode, far from the owner: fights only for itself, does not run back to help. */
+	public boolean roaming(ServerPlayer owner) {
+		return p.order() == PartnerOrder.FREE && horizontalDistSqr(p.position(), owner.position()) > 48 * 48;
+	}
+
+	/** Free mode: time to come back (long trip, full backpack, hurt with nothing to eat). */
+	private boolean tired() {
+		int free = 0;
+		for (int i = 0; i < p.backpack().getContainerSize(); i++) if (p.backpack().getItem(i).isEmpty()) free++;
+		boolean longTrip = roamStart >= 0 && p.tickCount - roamStart > ROAM_TIRED;
+		boolean hurt = p.getHealth() < 8 && Gear.foodPoints(p.backpack()) == 0 && !p.isEating();
+		return longTrip || free <= 2 || hurt;
+	}
+
 	public boolean inFight() {
 		return target != null && target.isAlive();
 	}
@@ -296,7 +319,7 @@ public final class PartnerBrain {
 	private boolean stayTogether(ServerLevel level, ServerPlayer owner) {
 		PartnerOrder order = p.order();
 		double horizontal = Math.sqrt(horizontalDistSqr(p.position(), owner.position()));
-		if (horizontal > FAR_TELEPORT) {
+		if (horizontal > (order == PartnerOrder.FREE ? ROAM_RADIUS : FAR_TELEPORT)) {
 			// Beyond loaded-chunk comfort for every order: come back, anchored orders end.
 			if (order.anchored()) {
 				p.setOrderQuiet(PartnerOrder.FOLLOW);
@@ -306,7 +329,7 @@ public final class PartnerBrain {
 			teleportHome(owner, null);
 			return true;
 		}
-		boolean working = job != null && !(job instanceof GiveJob);
+		boolean working = job != null && !(job instanceof GiveJob) && order != PartnerOrder.FREE;
 		if (working && horizontal > WORK_LEASH) {
 			// Too far from the owner to keep working: walk back (teleport if that does not work).
 			p.setActivity("returning");
@@ -363,18 +386,19 @@ public final class PartnerBrain {
 	}
 
 	private void pickTarget(ServerLevel level, ServerPlayer owner) {
+		boolean away = roaming(owner);
 		if (target != null && (!target.isAlive() || target.level() != p.level() || target.distanceTo(p) > 24
-				|| target.distanceTo(owner) > 32 || ignoredTargets.containsKey(target.getId()))) target = null;
+				|| !away && target.distanceTo(owner) > 32 || ignoredTargets.containsKey(target.getId()))) target = null;
 		if (target != null && targetTicks < 200) return;
 		LivingEntity best = null;
 		int now = owner.tickCount;
 		// Whoever attacked the owner or the partner recently.
-		LivingEntity owners = owner.getLastHurtByMob();
+		LivingEntity owners = away ? null : owner.getLastHurtByMob();
 		if (owners != null && now - owner.getLastHurtByMobTimestamp() < 100 && validTarget(owners, true)) best = owners;
 		LivingEntity mine = p.getLastHurtByMob();
 		if (best == null && mine != null && p.tickCount - p.getLastHurtByMobTimestamp() < 100 && validTarget(mine, true)) best = mine;
 		// Whatever the owner is fighting.
-		LivingEntity attacked = owner.getLastHurtMob();
+		LivingEntity attacked = away ? null : owner.getLastHurtMob();
 		if (best == null && attacked != null && now - owner.getLastHurtMobTimestamp() < 100 && validTarget(attacked, true)) best = attacked;
 		// Hostiles closing in on us.
 		if (best == null) {
@@ -506,7 +530,7 @@ public final class PartnerBrain {
 	// ------------------------------------------------------------------ 4. care
 
 	private boolean care(ServerLevel level, ServerPlayer owner) {
-		if (careCooldown > 0 || owner.isCreative()) return false;
+		if (careCooldown > 0 || owner.isCreative() || roaming(owner)) return false;
 		boolean dying = owner.getHealth() <= 6;
 		// Hungry and nothing to eat on them (a player with food in the pocket can feed themselves).
 		int ownerFood = 0;
@@ -583,6 +607,12 @@ public final class PartnerBrain {
 				say("coming");
 			}
 		}
+		// Free mode: tired → head home (or teleport to the owner), hand over the haul, rest, then off again.
+		if (order == PartnerOrder.FREE && !(job instanceof ReturnJob) && !(job instanceof GiveJob) && p.tickCount % 20 == 0 && tired()) {
+			stopJob(level);
+			say("tired");
+			job = new ReturnJob();
+		}
 		if (job != null) {
 			Job.Status status = job.tick(this, level);
 			if (status == Job.Status.RUNNING && stalled(level)) status = Job.Status.FAILED;
@@ -601,14 +631,33 @@ public final class PartnerBrain {
 				}
 				p.setOrderQuiet(PartnerOrder.FOLLOW);
 			} else if (order == PartnerOrder.FREE) {
-				job = new AutoJob();
+				if (finished instanceof ReturnJob) {
+					job = new GiveJob(true);
+					restUntil = p.tickCount + 20 * 120;
+				} else if (finished instanceof GiveJob && restUntil > p.tickCount) {
+					say("resting");
+				} else {
+					job = new AutoJob();
+				}
 			}
 			return;
 		}
 		switch (order) {
 			case PATROL -> patrol(level, owner);
 			case GUARD -> follow(owner, 1.5, 3.0, "guard");
-			case FREE -> job = new AutoJob();
+			case FREE -> {
+				if (restUntil > p.tickCount) {
+					follow(owner, 2.5, 5.0, "resting");
+				} else {
+					if (restUntil != 0) {
+						restUntil = 0;
+						roamStart = p.tickCount;
+						say("rested");
+					}
+					if (roamStart < 0) roamStart = p.tickCount;
+					job = new AutoJob();
+				}
+			}
 			case WOOD, ORE, GIVE -> p.setOrderQuiet(PartnerOrder.FOLLOW);
 			default -> {
 				// Following and the owner is busy in one place: use the time to grow (gear, food, ore).
