@@ -171,6 +171,7 @@ public final class PartnerBrain {
 		if (stayTogether(level, owner)) return;
 		if (protect(level, owner)) return;
 		if (care(level, owner)) return;
+		lightTheWay(level, owner);
 		doOrder(level, owner);
 	}
 
@@ -499,6 +500,26 @@ public final class PartnerBrain {
 		giveFoodCooldown = 20 * 40;
 		careCooldown = 40;
 		return true;
+	}
+
+	private int torchCooldown;
+
+	/** Underground with the owner and it is dark: put a torch on the floor next to the partner (like a teammate would). */
+	private void lightTheWay(ServerLevel level, ServerPlayer owner) {
+		if (torchCooldown > 0) {
+			torchCooldown--;
+			return;
+		}
+		torchCooldown = 20;
+		if (p.distanceTo(owner) > 6 || level.canSeeSky(owner.blockPosition()) || level.getMaxLocalRawBrightness(owner.blockPosition()) > 3) return;
+		if (Gear.count(p.backpack(), Items.TORCH) == 0 && !Crafting.craft(p, Items.TORCH)) return;
+		BlockPos at = p.blockPosition();
+		var torch = net.minecraft.world.level.block.Blocks.TORCH.defaultBlockState();
+		if (!level.getBlockState(at).isAir() || !torch.canSurvive(level, at) || !level.mayInteract(p, at)) return;
+		if (Gear.take(p.backpack(), s -> s.is(Items.TORCH), 1) == 0) return;
+		level.setBlockAndUpdate(at, torch);
+		p.swing(InteractionHand.MAIN_HAND);
+		torchCooldown = 20 * 6;
 	}
 
 	private int slotOf(java.util.function.Predicate<ItemStack> pred) {
