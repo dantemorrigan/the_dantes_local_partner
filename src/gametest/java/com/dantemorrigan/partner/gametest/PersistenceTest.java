@@ -68,6 +68,16 @@ public class PersistenceTest implements FabricClientGameTest {
 			try (TestSingleplayerContext sp = save.open()) {
 				sp.getClientLevel().waitForChunksRender();
 				expect(ctx, sp, "after re-entering #" + round, 5, 7);
+				// The client must actually SEE it (an entity that exists only on the server looks like "no partner").
+				ctx.waitTicks(20);
+				int visible = ctx.computeOnClient(mc -> {
+					int n = 0;
+					for (var e : mc.level.entitiesForRendering()) if (e instanceof PartnerEntity) n++;
+					return n;
+				});
+				System.out.println("PERSIST client sees " + visible + " partner(s) after re-entering #" + round);
+				ctx.takeScreenshot("p" + round + "_after_reenter");
+				if (visible != 1) throw new AssertionError("The client sees " + visible + " partners after re-entering");
 			}
 		}
 		// Knocked out: it comes back with everything it carried.

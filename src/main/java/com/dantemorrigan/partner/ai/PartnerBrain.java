@@ -909,6 +909,12 @@ public final class PartnerBrain {
 		return sleeping;
 	}
 
+	/** Winds up the current job cleanly (before the partner is saved or moved): cracks cleared, a placed table taken back. */
+	public void suspend() {
+		if (p.level() instanceof ServerLevel level) stopJob(level);
+		parkour.cancel();
+	}
+
 	/** Runs {@code r} after {@code ticks} ticks. */
 	public void later(Runnable r, int ticks) {
 		later.add(new Object[]{p.tickCount + ticks, r});

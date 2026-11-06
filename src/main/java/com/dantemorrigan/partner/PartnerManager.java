@@ -64,13 +64,12 @@ public final class PartnerManager {
 		// The world is about to be written: bring the saved backup up to date first, so even a world that is
 		// not closed cleanly later (crash, IDE stop button) has the partner's current backpack.
 		ServerLifecycleEvents.BEFORE_SAVE.register((s, flush, force) -> snapshotAll(s));
-		// Closing the world: put every partner into its record explicitly, before anything is saved.
-		ServerLifecycleEvents.SERVER_STOPPING.register(s -> {
-			for (ServerPlayer owner : new java.util.ArrayList<>(s.getPlayerList().getPlayers())) stash(owner, false);
-		});
+		ServerLifecycleEvents.SERVER_STOPPING.register(PartnerManager::closing);
 		ServerLifecycleEvents.SERVER_STOPPED.register(s -> { loaded = false; server = null; LIVE.clear(); records = new HashMap<>(); });
 		ServerTickEvents.END_SERVER_TICK.register(PartnerManager::tick);
-		ServerPlayConnectionEvents.DISCONNECT.register((handler, s) -> stash(handler.getPlayer(), false));
+		// Leaving the game: the partner STAYS in the world and is saved with its chunk like any other mob (the most
+		// reliable storage there is); the record only gets a fresh backup and its position.
+		ServerPlayConnectionEvents.DISCONNECT.register((handler, s) -> leave(handler.getPlayer()));
 		ServerEntityLevelChangeEvents.AFTER_PLAYER_CHANGE_LEVEL.register((player, from, to) -> ownerChangedLevel(player, to));
 		net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> {
 			if (!(entity instanceof ServerPlayer owner) || owner.level().getGameRules().get(net.minecraft.world.level.gamerules.GameRules.KEEP_INVENTORY)) return;
@@ -227,7 +226,7 @@ public final class PartnerManager {
 				PartnerEntity partner = find(owner);
 				if (partner == null) {
 					int missing = MISSING.merge(owner.getUUID(), 1, Integer::sum);
-					if (missing == 20) {
+					if (missing == 1) {
 						// Not found: it may simply be standing in a chunk that is not loaded (it roams far). Load it.
 						if (loadItsChunk(owner, rec)) LocalPartner.LOG.info("Partner of {} not found, loaded its last chunk", owner.getGameProfile().name());
 					}
@@ -248,6 +247,16 @@ public final class PartnerManager {
 		}
 	}
 
+	/** The owner leaves: refresh the backup (with the position) and let the partner be saved in the world. */
+	private static void leave(ServerPlayer owner) {
+		PartnerEntity p = find(owner);
+		if (p == null) return;
+		p.brain().suspend();
+		snapshot(owner, p);
+		LocalPartner.LOG.info("Partner of {} stays in the world: {}", owner.getGameProfile().name(), describe(records.get(owner.getUUID().toString())));
+		MISSING.remove(owner.getUUID());
+	}
+
 	/** Writes the partner's current state (and where it is) into its record as the backup. */
 	private static void snapshot(ServerPlayer owner, PartnerEntity partner) {
 		CompoundTag rec = records.get(owner.getUUID().toString());
@@ -257,6 +266,15 @@ public final class PartnerManager {
 		r.putString("dim", partner.level().dimension().identifier().toString());
 		r.putIntArray("pos", new int[]{partner.getBlockX(), partner.getBlockY(), partner.getBlockZ()});
 		put(owner.getUUID(), r);
+	}
+
+	/** The world is closing: wind up every partner's current job (a placed table goes back into the bag), then back up. */
+	private static void closing(MinecraftServer s) {
+		if (loaded) for (ServerPlayer o : s.getPlayerList().getPlayers()) {
+			PartnerEntity p = find(o);
+			if (p != null) p.brain().suspend();
+		}
+		snapshotAll(s);
 	}
 
 	private static void snapshotAll(MinecraftServer s) {
@@ -345,6 +363,7 @@ public final class PartnerManager {
 			}
 			return;
 		}
+		partner.brain().suspend(); // a half-done job (a placed crafting table...) is wound up first
 		CompoundTag r = rec.copy();
 		r.put("stash", save(partner));
 		if (travel) r.putBoolean("travel", true);
