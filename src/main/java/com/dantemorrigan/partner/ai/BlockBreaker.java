@@ -51,20 +51,31 @@ public final class BlockBreaker {
 			return Result.FAILED;
 		}
 		if (progress == 0) Gear.holdToolFor(p, state);
-		p.getLookControl().setLookAt(Vec3.atCenterOf(target));
+		// Face the block with the whole body, like a player mining it.
+		Vec3 center = Vec3.atCenterOf(target);
+		p.getLookControl().setLookAt(center);
+		float yaw = (float) (net.minecraft.util.Mth.atan2(center.z - p.getZ(), center.x - p.getX()) * net.minecraft.util.Mth.RAD_TO_DEG) - 90f;
+		p.setYBodyRot(yaw);
+		p.setYHeadRot(yaw);
 		float hardness = state.getDestroySpeed(level, target);
 		ItemStack tool = p.getMainHandItem();
 		if (hardness <= 0) {
+			p.swing(InteractionHand.MAIN_HAND);
 			return finish(p, level, target, state, tool);
 		}
 		boolean correct = !state.requiresCorrectToolForDrops() || tool.isCorrectToolForDrops(state);
 		float speed = tool.getDestroySpeed(state);
 		if (p.isInWater()) speed /= 5f;
+		if (!p.onGround()) speed /= 5f;
 		progress += speed / hardness / (correct ? 30f : 100f);
-		if (p.tickCount % 5 == 0) {
+		if (p.tickCount % 4 == 0) {
+			// Each hit: arm swing with the tool, the block's hit sound and chips flying off the face we hit.
 			p.swing(InteractionHand.MAIN_HAND);
 			var sound = state.getSoundType();
-			level.playSound(null, target, sound.getHitSound(), net.minecraft.sounds.SoundSource.BLOCKS, sound.getVolume() * 0.25f, sound.getPitch() * 0.5f);
+			level.playSound(null, target, sound.getHitSound(), net.minecraft.sounds.SoundSource.BLOCKS, (sound.getVolume() + 1f) / 8f, sound.getPitch() * 0.5f);
+			Vec3 face = center.add(p.getEyePosition().subtract(center).normalize().scale(0.55));
+			level.sendParticles(new net.minecraft.core.particles.BlockParticleOption(net.minecraft.core.particles.ParticleTypes.BLOCK, state),
+					face.x, face.y, face.z, 4, 0.15, 0.15, 0.15, 0.05);
 		}
 		int stage = (int) (progress * 10f);
 		if (stage != lastStage) {

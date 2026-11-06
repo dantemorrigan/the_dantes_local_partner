@@ -88,7 +88,7 @@ public final class PartnerBrain {
 		stopJob((ServerLevel) p.level());
 		target = null;
 		switch (order) {
-			case WOOD -> job = new ChopJob(12);
+			case WOOD -> job = new ChopJob(16);
 			case ORE -> job = new MineJob(WorldScan.OreKind.ANY, 12);
 			case GIVE -> job = new GiveJob(false);
 			case FREE -> job = new AutoJob();

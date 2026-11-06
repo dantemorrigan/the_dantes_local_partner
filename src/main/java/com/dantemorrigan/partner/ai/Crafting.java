@@ -72,43 +72,95 @@ public final class Crafting {
 	}
 
 	/** Crafts the item if possible, crafting planks, sticks and the table on the way. */
+	/**
+	 * Crafts the item from the backpack (planks and sticks on the way). 3×3 recipes only work next to a crafting
+	 * table standing in the world; {@link CraftJob} finds or places one and works at it.
+	 */
 	public static boolean craft(PartnerEntity p, Item target) {
-		return craft(p, target, 0);
-	}
-
-	private static boolean craft(PartnerEntity p, Item target, int depth) {
-		if (depth > 4) return false;
+		if (needsTable(target) && !tableNearby(p)) return false;
 		SimpleContainer c = p.backpack();
-		if (target == Items.OAK_PLANKS) return makePlanks(p);
-		Recipe r = RECIPES.get(target);
-		if (r == null) return false;
-		if (r.table() && Gear.count(c, Items.CRAFTING_TABLE) == 0 && !craft(p, Items.CRAFTING_TABLE, depth + 1)) return false;
-		for (Need n : r.needs()) {
-			int guard = 0;
-			while (Gear.count(c, n.what()) < n.count() && guard++ < 8) {
-				if (n.plain() == target || !craft(p, n.plain(), depth + 1)) return false;
-			}
-			if (Gear.count(c, n.what()) < n.count()) return false;
-		}
-		ItemStack result = new ItemStack(r.out(), r.count());
-		for (Need n : r.needs()) Gear.take(c, n.what(), n.count());
-		ItemStack rest = c.addItem(result);
-		if (!rest.isEmpty() && p.level() instanceof net.minecraft.server.level.ServerLevel level) p.spawnAtLocation(level, rest);
+		java.util.List<ItemStack> overflow = new java.util.ArrayList<>();
+		if (!make(c, target, 0, new boolean[]{true}, overflow)) return false;
+		if (p.level() instanceof net.minecraft.server.level.ServerLevel level) for (ItemStack rest : overflow) p.spawnAtLocation(level, rest);
 		p.playSound(SoundEvents.VILLAGER_WORK_TOOLSMITH, 0.4f, 1.2f);
 		p.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
 		return true;
 	}
 
+	/** Whether the partner could craft it from what it carries (counting a table it would have to make first). */
+	public static boolean canMake(PartnerEntity p, Item target) {
+		SimpleContainer src = p.backpack();
+		SimpleContainer copy = new SimpleContainer(src.getContainerSize() + 9);
+		for (int i = 0; i < src.getContainerSize(); i++) copy.setItem(i, src.getItem(i).copy());
+		return make(copy, target, 0, new boolean[]{tableNearby(p)}, new java.util.ArrayList<>());
+	}
+
+	public static boolean needsTable(Item target) {
+		Recipe r = RECIPES.get(target);
+		return r != null && r.table();
+	}
+
+	/** A crafting table block within arm's reach of the partner. */
+	public static boolean tableNearby(PartnerEntity p) {
+		return findTable(p, 4) != null;
+	}
+
+	public static net.minecraft.core.@org.jspecify.annotations.Nullable BlockPos findTable(PartnerEntity p, int radius) {
+		var level = p.level();
+		net.minecraft.core.BlockPos best = null;
+		double bestD = Double.MAX_VALUE;
+		var center = p.blockPosition();
+		for (var pos : net.minecraft.core.BlockPos.betweenClosed(center.offset(-radius, -2, -radius), center.offset(radius, 3, radius))) {
+			if (!level.getBlockState(pos).is(net.minecraft.world.level.block.Blocks.CRAFTING_TABLE)) continue;
+			double d = p.getEyePosition().distanceToSqr(net.minecraft.world.phys.Vec3.atCenterOf(pos));
+			if (radius <= 4 && d > BlockBreaker.REACH * BlockBreaker.REACH) continue;
+			if (d < bestD) {
+				bestD = d;
+				best = pos.immutable();
+			}
+		}
+		return best;
+	}
+
+	/** Pure crafting on a container. {@code table[0]}: a table is available (else one must be made from planks). */
+	private static boolean make(SimpleContainer c, Item target, int depth, boolean[] table, java.util.List<ItemStack> overflow) {
+		if (depth > 5) return false;
+		if (target == Items.OAK_PLANKS) return planks(c, overflow);
+		Recipe r = RECIPES.get(target);
+		if (r == null) return false;
+		if (r.table() && !table[0]) {
+			if (Gear.count(c, Items.CRAFTING_TABLE) == 0 && !make(c, Items.CRAFTING_TABLE, depth + 1, table, overflow)) return false;
+			table[0] = true; // it gets placed and used
+		}
+		for (Need n : r.needs()) {
+			int guard = 0;
+			while (Gear.count(c, n.what()) < n.count() && guard++ < 8) {
+				if (n.plain() == target || !make(c, n.plain(), depth + 1, table, overflow)) return false;
+			}
+			if (Gear.count(c, n.what()) < n.count()) return false;
+		}
+		for (Need n : r.needs()) Gear.take(c, n.what(), n.count());
+		ItemStack rest = c.addItem(new ItemStack(r.out(), r.count()));
+		if (!rest.isEmpty()) overflow.add(rest);
+		return true;
+	}
+
 	/** One log becomes four planks of the same wood. */
 	public static boolean makePlanks(PartnerEntity p) {
-		SimpleContainer c = p.backpack();
+		java.util.List<ItemStack> overflow = new java.util.ArrayList<>();
+		boolean ok = planks(p.backpack(), overflow);
+		if (p.level() instanceof net.minecraft.server.level.ServerLevel level) for (ItemStack rest : overflow) p.spawnAtLocation(level, rest);
+		return ok;
+	}
+
+	private static boolean planks(SimpleContainer c, java.util.List<ItemStack> overflow) {
 		for (int i = 0; i < c.getContainerSize(); i++) {
 			ItemStack s = c.getItem(i);
 			if (!s.is(ItemTags.LOGS)) continue;
 			Item planks = planksFor(s);
 			s.shrink(1);
 			ItemStack rest = c.addItem(new ItemStack(planks, 4));
-			if (!rest.isEmpty() && p.level() instanceof net.minecraft.server.level.ServerLevel level) p.spawnAtLocation(level, rest);
+			if (!rest.isEmpty()) overflow.add(rest);
 			c.setChanged();
 			return true;
 		}

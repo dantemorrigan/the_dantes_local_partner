@@ -5,6 +5,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.ItemTags;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
@@ -216,26 +217,22 @@ public final class MineJob implements Job {
 		int need = requiredTier();
 		if (tier >= need) return true;
 		PartnerEntity p = brain.p;
-		if (need >= 3) {
-			if (Gear.count(p.backpack(), Items.IRON_INGOT) >= 3 && Crafting.craft(p, Items.IRON_PICKAXE)) {
-				brain.say("crafted", new ItemStack(Items.IRON_PICKAXE).getHoverName());
-				return true;
+		// Make the pickaxe at a real crafting table (CraftJob finds or places one).
+		Item[] picks = need >= 3 ? new Item[]{Items.IRON_PICKAXE} : new Item[]{Items.IRON_PICKAXE, Items.STONE_PICKAXE, Items.WOODEN_PICKAXE};
+		for (Item pick : picks) {
+			if (Gear.pickTier(new ItemStack(pick)) > tier && Crafting.canMake(p, pick)) {
+				prerequisite = new CraftJob(java.util.List.of(pick), true);
+				return false;
 			}
+		}
+		if (need >= 3) {
 			brain.say("need_iron_pick");
 			return false;
 		}
 		if (tier == 0) {
-			if (!Crafting.craft(p, Items.WOODEN_PICKAXE)) {
-				prerequisite = new ChopJob(3);
-				brain.say("need_wood_for_pick");
-				return false;
-			}
-			brain.say("crafted", new ItemStack(Items.WOODEN_PICKAXE).getHoverName());
-			if (need <= 1) return true;
-		}
-		if (Crafting.craft(p, Items.STONE_PICKAXE)) {
-			brain.say("crafted", new ItemStack(Items.STONE_PICKAXE).getHoverName());
-			return true;
+			prerequisite = new ChopJob(3);
+			brain.say("need_wood_for_pick");
+			return false;
 		}
 		prerequisite = new MineJob(WorldScan.OreKind.STONE, 3);
 		return false;

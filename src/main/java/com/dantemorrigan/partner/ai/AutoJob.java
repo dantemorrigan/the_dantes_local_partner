@@ -31,6 +31,8 @@ public final class AutoJob implements Job {
 	public Status tick(PartnerBrain brain, ServerLevel level) {
 		if (step == null) {
 			craftUpgrades(brain);
+			var crafts = plannedCrafts(brain);
+			if (!crafts.isEmpty() && start(brain, "craft", new CraftJob(crafts, true))) return Status.RUNNING;
 			if (!choose(brain)) {
 				idle = 20 * 30; // nothing to do: stay with the owner for a while
 				stepKey = "idle";
@@ -75,6 +77,7 @@ public final class AutoJob implements Job {
 
 	/** True when the plan has nothing left to work on right now (same checks as {@link #choose}, without starting). */
 	static boolean nothingToDo(PartnerBrain brain) {
+		if (!plannedCrafts(brain).isEmpty()) return false;
 		AutoJob probe = new AutoJob();
 		probe.dryRun = true;
 		return !probe.choose(brain);
@@ -127,40 +130,56 @@ public final class AutoJob implements Job {
 		return Gear.has(p, s -> Gear.isSword(s) && Gear.attackDamage(s) >= want);
 	}
 
-	/** Crafts every upgrade the backpack allows right now, best first. */
-	static void craftUpgrades(PartnerBrain brain) {
+	/**
+	 * Upgrades the backpack allows right now, best first: they are crafted at a real table by a {@link CraftJob}.
+	 * Small 2×2 things (torches) are made on the spot by {@link #craftUpgrades}.
+	 */
+	static java.util.List<Item> plannedCrafts(PartnerBrain brain) {
 		PartnerEntity p = brain.p;
 		var c = p.backpack();
+		java.util.List<Item> out = new java.util.ArrayList<>();
 		int tier = Gear.pickTierOf(p);
-		if (tier < 4 && Gear.count(c, Items.DIAMOND) >= 3) announce(brain, Items.DIAMOND_PICKAXE);
-		if (tier < 3 && Gear.count(c, Items.IRON_INGOT) >= 3) announce(brain, Items.IRON_PICKAXE);
-		if (tier < 2 && Gear.count(c, s -> s.is(ItemTags.STONE_TOOL_MATERIALS)) >= 3) announce(brain, Items.STONE_PICKAXE);
-		if (Gear.pickTierOf(p) < 1) announce(brain, Items.WOODEN_PICKAXE);
+		Item[] picks = {Items.DIAMOND_PICKAXE, Items.IRON_PICKAXE, Items.STONE_PICKAXE, Items.WOODEN_PICKAXE};
+		for (int i = 0; i < picks.length; i++) {
+			if (tier >= 4 - i) break;
+			if (Crafting.canMake(p, picks[i])) {
+				out.add(picks[i]);
+				break;
+			}
+		}
 		for (Item sword : new Item[]{Items.DIAMOND_SWORD, Items.IRON_SWORD, Items.STONE_SWORD, Items.WOODEN_SWORD}) {
 			if (hasAtLeast(p, sword)) break;
-			if (announce(brain, sword)) break;
+			if (Crafting.canMake(p, sword)) {
+				out.add(sword);
+				break;
+			}
 		}
-		if (Gear.count(c, Items.FURNACE) == 0 && Gear.count(c, s -> s.is(ItemTags.STONE_TOOL_MATERIALS)) >= 8) announce(brain, Items.FURNACE);
-		armor(brain, Items.DIAMOND, new Item[]{Items.DIAMOND_CHESTPLATE, Items.DIAMOND_LEGGINGS, Items.DIAMOND_HELMET, Items.DIAMOND_BOOTS});
-		armor(brain, Items.IRON_INGOT, new Item[]{Items.IRON_CHESTPLATE, Items.IRON_LEGGINGS, Items.IRON_HELMET, Items.IRON_BOOTS});
-		// Shield once the iron armor is covered; bow and arrows from what the hunts and fights drop.
-		if (!Gear.has(p, Gear::isShield) && Gear.count(c, Items.IRON_INGOT) > ironWanted(p)) announce(brain, Items.SHIELD);
-		if (!Gear.has(p, Gear::isBow) && Gear.count(c, Items.STRING) >= 3) announce(brain, Items.BOW);
-		for (int i = 0; i < 4 && Gear.arrows(p) < 32 && Gear.has(p, Gear::isBow); i++) {
-			if (!Crafting.craft(p, Items.ARROW)) break;
+		if (Gear.count(c, Items.FURNACE) == 0 && Gear.count(c, s -> s.is(ItemTags.STONE_TOOL_MATERIALS)) >= 8) out.add(Items.FURNACE);
+		armor(p, out, new Item[]{Items.DIAMOND_CHESTPLATE, Items.DIAMOND_LEGGINGS, Items.DIAMOND_HELMET, Items.DIAMOND_BOOTS});
+		armor(p, out, new Item[]{Items.IRON_CHESTPLATE, Items.IRON_LEGGINGS, Items.IRON_HELMET, Items.IRON_BOOTS});
+		if (!Gear.has(p, Gear::isShield) && Gear.count(c, Items.IRON_INGOT) > ironWanted(p) && Crafting.canMake(p, Items.SHIELD)) out.add(Items.SHIELD);
+		if (!Gear.has(p, Gear::isBow) && Crafting.canMake(p, Items.BOW)) out.add(Items.BOW);
+		if (Gear.has(p, Gear::isBow) && Gear.arrows(p) < 32 && Crafting.canMake(p, Items.ARROW)) {
+			out.add(Items.ARROW);
+			out.add(Items.ARROW);
 		}
-		if (Gear.count(c, Items.TORCH) < 8 && Gear.count(c, s -> s.is(ItemTags.COALS)) > 2) Crafting.craft(p, Items.TORCH);
+		return out;
+	}
+
+	/** Quick 2×2 crafts that need no table. */
+	static void craftUpgrades(PartnerBrain brain) {
+		PartnerEntity p = brain.p;
+		if (Gear.count(p.backpack(), Items.TORCH) < 8 && Gear.count(p.backpack(), s -> s.is(ItemTags.COALS)) > 2) Crafting.craft(p, Items.TORCH);
 		Gear.equipArmor(p);
 	}
 
-	private static void armor(PartnerBrain brain, Item material, Item[] pieces) {
-		PartnerEntity p = brain.p;
+	private static void armor(PartnerEntity p, java.util.List<Item> out, Item[] pieces) {
 		for (Item piece : pieces) {
 			ItemStack sample = new ItemStack(piece);
 			var slot = sample.get(net.minecraft.core.component.DataComponents.EQUIPPABLE).slot();
 			if (Gear.armorValue(p.getItemBySlot(slot)) >= Gear.armorValue(sample)) continue;
 			if (Gear.has(p, s -> s.is(piece))) continue;
-			announce(brain, piece);
+			if (Crafting.canMake(p, piece)) out.add(piece);
 		}
 	}
 

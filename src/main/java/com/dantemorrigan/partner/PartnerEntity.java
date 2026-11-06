@@ -205,6 +205,13 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 		}
 	}
 
+	/** Arm swings (hits, chopping, mining) must advance on both sides; vanilla does it only for Monsters. */
+	@Override
+	public void aiStep() {
+		this.updateSwingTime();
+		super.aiStep();
+	}
+
 	/** A drop deeper than this is never walked off on purpose (falls of up to 3 blocks do no damage). */
 	private static final double SAFE_DROP = 3.4;
 
