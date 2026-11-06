@@ -84,10 +84,41 @@ public final class WorldScan {
 	/** True when some face of the block touches air: a player standing nearby could see and reach it. */
 	public static boolean exposed(ServerLevel level, BlockPos pos) {
 		for (Direction d : Direction.values()) {
-			BlockState n = level.getBlockState(pos.relative(d));
-			if (n.isAir() || n.is(Blocks.CAVE_AIR)) return true;
+			BlockPos np = pos.relative(d);
+			BlockState n = level.getBlockState(np);
+			// Air, water (an ore on a shore or a lake wall is still reachable), plants: anything you can see it through.
+			if (n.isAir() || !n.isSolidRender() && !n.getFluidState().is(net.minecraft.tags.FluidTags.LAVA)) return true;
 		}
 		return false;
+	}
+
+	/** Lava next to or at the block: never mine there. Water is fine for ores (a player just breaks it and swims). */
+	public static boolean lavaNear(ServerLevel level, BlockPos pos) {
+		if (level.getFluidState(pos).is(net.minecraft.tags.FluidTags.LAVA)) return true;
+		for (Direction d : Direction.values()) {
+			if (level.getFluidState(pos.relative(d)).is(net.minecraft.tags.FluidTags.LAVA)) return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Why nothing was found, for the report: ores of this kind within {@code radius} that were left out because
+	 * they are inside the players' territory, need a better pickaxe, or sit in/next to lava.
+	 * Returns {protectedCount, needBetterTool, lava}.
+	 */
+	public static int[] diagnose(ServerLevel level, BlockPos from, int radius, OreKind kind, java.util.function.Predicate<BlockState> usable) {
+		int prot = 0, tool = 0, lava = 0;
+		BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
+		for (int dx = -radius; dx <= radius; dx++) for (int dz = -radius; dz <= radius; dz++) for (int dy = -radius / 2; dy <= radius / 2; dy++) {
+			m.set(from.getX() + dx, from.getY() + dy, from.getZ() + dz);
+			if (!level.hasChunkAt(m)) continue;
+			BlockState s = level.getBlockState(m);
+			if (!isOre(s, kind)) continue;
+			if (com.dantemorrigan.partner.Territory.isProtected(level, m)) prot++;
+			else if (lavaNear(level, m)) lava++;
+			else if (!usable.test(s)) tool++;
+		}
+		return new int[]{prot, tool, lava};
 	}
 
 	/** Nearest exposed block matching {@code what}, within a box around {@code from}. */

@@ -88,13 +88,13 @@
   "partner.local_partner.say.gave_food": "Here: %s ×%s. Eat up.",
   "partner.local_partner.say.done_wood": "Chopped %s logs, bringing them.",
   "partner.local_partner.say.no_trees": "No trees around here.",
-  "partner.local_partner.say.done_ore": "Got %s ore, bringing it.",
+  "partner.local_partner.say.done_ore": "Mined: %s, bringing it to you.",
   "partner.local_partner.say.no_ore": "Couldn't find ore nearby.",
   "partner.local_partner.say.need_iron_pick": "I need an iron pickaxe for that.",
   "partner.local_partner.say.need_wood_for_pick": "Need wood for a pickaxe first.",
   "partner.local_partner.say.crafted": "Made: %s.",
-  "partner.local_partner.say.brought": "Here, I brought it.",
-  "partner.local_partner.say.gave_all": "Take everything I don't need.",
+  "partner.local_partner.say.brought": "Here, I brought: %s.",
+  "partner.local_partner.say.gave_all": "Here you go: %s.",
   "partner.local_partner.order.follow": "follow",
   "partner.local_partner.order.wood": "wood",
   "partner.local_partner.order.ore": "ore",
@@ -197,5 +197,9 @@
   "partner.local_partner.activity.going_home": "heading home",
   "partner.local_partner.activity.home_wait": "waiting at home",
   "partner.local_partner.activity.resting": "resting nearby",
-  "partner.local_partner.plan.explore": "explore a new area"
+  "partner.local_partner.plan.explore": "explore a new area",
+  "partner.local_partner.say.no_ore_why": "No suitable ore found. There is some nearby but off limits: inside builds - %s, needs a better pickaxe - %s, by lava - %s.",
+  "partner.local_partner.say.ore_relocate": "Nothing here, moving to a new spot (try %s).",
+  "partner.local_partner.nothing": "nothing",
+  "partner.local_partner.and_more": " and %s more"
 }

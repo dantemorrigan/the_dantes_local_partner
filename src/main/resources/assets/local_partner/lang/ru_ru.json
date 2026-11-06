@@ -88,13 +88,13 @@
   "partner.local_partner.say.gave_food": "Держи: %s ×%s. Поешь.",
   "partner.local_partner.say.done_wood": "Нарубил %s бревен, несу.",
   "partner.local_partner.say.no_trees": "Рядом нет деревьев.",
-  "partner.local_partner.say.done_ore": "Добыл руды: %s, несу.",
+  "partner.local_partner.say.done_ore": "Добыл: %s — несу тебе.",
   "partner.local_partner.say.no_ore": "Руды поблизости не нашёл.",
   "partner.local_partner.say.need_iron_pick": "Для этого нужна железная кирка.",
   "partner.local_partner.say.need_wood_for_pick": "Сначала сделаю кирку — нужно дерево.",
   "partner.local_partner.say.crafted": "Сделал: %s.",
-  "partner.local_partner.say.brought": "Вот, принёс.",
-  "partner.local_partner.say.gave_all": "Держи всё лишнее.",
+  "partner.local_partner.say.brought": "Вот, принёс: %s.",
+  "partner.local_partner.say.gave_all": "Держи: %s.",
   "partner.local_partner.order.follow": "за мной",
   "partner.local_partner.order.wood": "дерево",
   "partner.local_partner.order.ore": "руда",
@@ -197,5 +197,9 @@
   "partner.local_partner.activity.going_home": "идёт домой",
   "partner.local_partner.activity.home_wait": "ждёт дома",
   "partner.local_partner.activity.resting": "отдыхает рядом",
-  "partner.local_partner.plan.explore": "исследовать новое место"
+  "partner.local_partner.plan.explore": "исследовать новое место",
+  "partner.local_partner.say.no_ore_why": "Подходящей руды не нашёл. Рядом есть, но недоступна: в зоне построек — %s, нужна кирка получше — %s, у лавы — %s.",
+  "partner.local_partner.say.ore_relocate": "Тут пусто — перехожу на новое место (попытка %s).",
+  "partner.local_partner.nothing": "ничего",
+  "partner.local_partner.and_more": " и ещё %s"
 }

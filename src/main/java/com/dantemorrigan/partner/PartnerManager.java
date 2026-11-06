@@ -147,9 +147,8 @@ public final class PartnerManager {
 			case "give_all", "give_res", "give" -> {
 				if (partner.distanceTo(owner) <= 8) {
 					// Right here (e.g. the backpack screen is open): hand it over at once.
-					if (order.equals("give_all")) partner.giveWholeBackpack(owner);
-					else partner.handEverythingTo(owner, false);
-					partner.speak("gave_all");
+					var summary = order.equals("give_all") ? partner.giveWholeBackpack(owner) : partner.handEverythingTo(owner, false);
+					partner.speak("gave_all", summary);
 				} else partner.setOrder(PartnerOrder.GIVE, owner);
 				sendStatus(owner);
 				return;

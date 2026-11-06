@@ -362,23 +362,36 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 	}
 
 	/** Everything in the backpack (tools included); what it wears and holds stays on it. */
-	public void giveWholeBackpack(Player player) {
-		for (ItemStack s : brain.ownerLoot.removeAllItems()) giveTo(player, s);
+	public Component giveWholeBackpack(Player player) {
+		java.util.LinkedHashMap<String, int[]> given = new java.util.LinkedHashMap<>();
+		for (ItemStack s : brain.ownerLoot.removeAllItems()) {
+			note(given, s);
+			giveTo(player, s);
+		}
 		for (int i = 0; i < backpack.getContainerSize(); i++) {
 			ItemStack s = backpack.removeItemNoUpdate(i);
-			if (!s.isEmpty()) giveTo(player, s);
+			if (s.isEmpty()) continue;
+			note(given, s);
+			giveTo(player, s);
 		}
 		backpack.setChanged();
+		return summary(given);
 	}
 
 	/** Hands over the backpack (and with {@code gearToo}, everything it wears and holds). */
-	public void handEverythingTo(Player player, boolean gearToo) {
-		for (ItemStack s : brain.ownerLoot.removeAllItems()) giveTo(player, s);
+	public Component handEverythingTo(Player player, boolean gearToo) {
+		java.util.LinkedHashMap<String, int[]> given = new java.util.LinkedHashMap<>();
+		for (ItemStack s : brain.ownerLoot.removeAllItems()) {
+			note(given, s);
+			giveTo(player, s);
+		}
 		for (int i = 0; i < backpack.getContainerSize(); i++) {
 			ItemStack s = backpack.getItem(i);
 			if (s.isEmpty()) continue;
 			if (!gearToo && brain.keepsForItself(s, i)) continue;
-			giveTo(player, backpack.removeItemNoUpdate(i));
+			ItemStack taken = backpack.removeItemNoUpdate(i);
+			note(given, taken);
+			giveTo(player, taken);
 		}
 		if (gearToo) {
 			for (EquipmentSlot slot : EquipmentSlot.values()) {
@@ -386,10 +399,31 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 				ItemStack s = this.getItemBySlot(slot);
 				if (s.isEmpty() || slot == EquipmentSlot.OFFHAND && eating > 0) continue;
 				this.setItemSlot(slot, ItemStack.EMPTY);
+				note(given, s);
 				giveTo(player, s);
 			}
 		}
 		backpack.setChanged();
+		return summary(given);
+	}
+
+	private static void note(java.util.Map<String, int[]> given, ItemStack s) {
+		if (s.isEmpty()) return;
+		given.computeIfAbsent(s.getItem().getDescriptionId(), k -> new int[1])[0] += s.getCount();
+	}
+
+	/** "Coal ×12, Raw Iron ×5, Oak Log ×9 and 3 more", biggest stacks first. */
+	public static Component summary(java.util.Map<String, int[]> given) {
+		if (given.isEmpty()) return Component.translatable("partner.local_partner.nothing");
+		var sorted = new java.util.ArrayList<>(given.entrySet());
+		sorted.sort((a, b) -> b.getValue()[0] - a.getValue()[0]);
+		net.minecraft.network.chat.MutableComponent out = Component.empty();
+		for (int i = 0; i < Math.min(5, sorted.size()); i++) {
+			if (i > 0) out.append(", ");
+			out.append(Component.translatable(sorted.get(i).getKey())).append(" ×" + sorted.get(i).getValue()[0]);
+		}
+		if (sorted.size() > 5) out.append(Component.translatable("partner.local_partner.and_more", sorted.size() - 5));
+		return out;
 	}
 
 	public void openInventory(ServerPlayer player) {

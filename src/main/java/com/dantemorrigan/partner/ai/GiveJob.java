@@ -34,8 +34,8 @@ public final class GiveJob implements Job {
 		}
 		p.getNavigation().stop();
 		p.getLookControl().setLookAt(owner);
-		p.handEverythingTo(owner, false);
-		p.speak(afterWork ? "brought" : "gave_all");
+		var summary = p.handEverythingTo(owner, false);
+		p.speak(afterWork ? "brought" : "gave_all", summary);
 		p.setOrderQuiet(PartnerOrder.FOLLOW);
 		return Status.DONE;
 	}

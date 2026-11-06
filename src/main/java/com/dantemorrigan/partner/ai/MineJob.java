@@ -29,6 +29,12 @@ public final class MineJob implements Job {
 	private final Predicate<ItemStack> product;
 	private int start = -1, ticks, scanCooldown, stuck, collectTicks, startY = Integer.MIN_VALUE, minY = Integer.MAX_VALUE;
 	private boolean announcedSearch, announcedDig;
+	/** What was mined, by block (translation key → count), for the report. */
+	private final java.util.LinkedHashMap<String, Integer> mined = new java.util.LinkedHashMap<>();
+	private int hops;
+	private @Nullable Vec3 hopGoal;
+	private final Travel hopTravel = new Travel();
+	private int hopTicks;
 	private @Nullable BlockPos ore;
 	private @Nullable Job prerequisite;
 	// staircase state
@@ -121,12 +127,34 @@ public final class MineJob implements Job {
 			brain.report("ore_search_" + kind.name().toLowerCase());
 		}
 		if (got >= wanted) {
-			if (kind != WorldScan.OreKind.STONE) brain.say("done_ore", got);
+			if (kind != WorldScan.OreKind.STONE) brain.say("done_ore", summary());
 			return Status.DONE;
 		}
 		if (++ticks > TIME_LIMIT) {
-			brain.say(got > 0 ? "done_ore" : "no_ore", got);
+			if (got > 0) brain.say("done_ore", summary());
+			else noOre(brain, level);
 			return got > 0 ? Status.DONE : Status.FAILED;
+		}
+		// Walking to another spot after the surroundings gave nothing.
+		if (hopGoal != null && prerequisite == null) {
+			double d = Math.sqrt(PartnerBrain.horizontalDistSqr(p.position(), hopGoal));
+			if (d < 4 || ++hopTicks > 20 * 40 || !hopTravel.tick(brain, level, hopGoal, PartnerEntity.SPRINT)) {
+				hopGoal = null;
+				scanCooldown = 0;
+			}
+			if (hopGoal != null) {
+				// Ore might be in sight on the way: look while walking.
+				if (p.tickCount % 20 == 0) {
+					BlockPos seen = WorldScan.findExposed(level, p.blockPosition(), 10, 6, s -> mineable(brain, s), brain.badBlocks);
+					if (seen != null) {
+						hopGoal = null;
+						ore = seen;
+						stuck = 0;
+						brain.report("ore_found", level.getBlockState(seen).getBlock().getName(), (int) Math.sqrt(seen.distSqr(p.blockPosition())));
+					}
+				}
+				return Status.RUNNING;
+			}
 		}
 		if (!p.backpack().canAddItem(new ItemStack(Items.COBBLESTONE)) && !p.backpack().canAddItem(new ItemStack(Items.RAW_IRON))) {
 			brain.say("full");
@@ -164,6 +192,32 @@ public final class MineJob implements Job {
 		return staircase(brain, level);
 	}
 
+	/** "Coal Ore ×5, Iron Ore ×3". */
+	private net.minecraft.network.chat.Component summary() {
+		var out = net.minecraft.network.chat.Component.empty();
+		boolean first = true;
+		for (var e : mined.entrySet()) {
+			if (!first) out.append(", ");
+			first = false;
+			out.append(net.minecraft.network.chat.Component.translatable(e.getKey())).append(" ×" + e.getValue());
+		}
+		return first ? net.minecraft.network.chat.Component.translatable("partner.local_partner.nothing") : out;
+	}
+
+	/** Nothing found: say so with the reason, so it is clear whether ore is around but off limits. */
+	private void noOre(PartnerBrain brain, ServerLevel level) {
+		int[] why = WorldScan.diagnose(level, brain.p.blockPosition(), 16, kind, s -> mineable(brain, s));
+		if (why[0] + why[1] + why[2] == 0) brain.say("no_ore");
+		else brain.say("no_ore_why", why[0], why[1], why[2]);
+	}
+
+	/** A spot 20-30 blocks away to continue the search from. */
+	private static Vec3 freshSpot(PartnerEntity p, ServerLevel level) {
+		double angle = p.getRandom().nextDouble() * Math.PI * 2, dist = 20 + p.getRandom().nextDouble() * 10;
+		Vec3 t = p.position().add(Math.cos(angle) * dist, 0, Math.sin(angle) * dist);
+		return Vec3.atBottomCenterOf(level.getHeightmapPos(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, BlockPos.containing(t)));
+	}
+
 	private boolean mineable(PartnerBrain brain, BlockState s) {
 		boolean wanted = WorldScan.isOre(s, kind)
 				|| (kind == WorldScan.OreKind.IRON || kind == WorldScan.OreKind.DIAMOND) && WorldScan.isOre(s, WorldScan.OreKind.COAL);
@@ -179,22 +233,24 @@ public final class MineJob implements Job {
 			collectTicks = 40;
 			return Status.RUNNING;
 		}
-		if (WorldScan.dangerousFluidNear(level, target)) {
+		if (WorldScan.lavaNear(level, target)) {
 			brain.badBlocks.add(target);
 			ore = null;
 			return Status.RUNNING;
 		}
 		if (!brain.approach(target)) {
-			if (++stuck > 160) {
+			if (++stuck > 120) {
 				brain.badBlocks.add(target);
 				ore = null;
 			}
 			return Status.RUNNING;
 		}
 		var oreName = level.getBlockState(target).getBlock().getName();
+		String oreKey = level.getBlockState(target).getBlock().getDescriptionId();
 		BlockBreaker.Result r = brain.breaker.tick(p, level, target);
 		if (r == BlockBreaker.Result.DONE) {
 			collectTicks = 40;
+			mined.merge(oreKey, 1, Integer::sum);
 			brain.report("ore_mined", oreName, Math.max(0, Gear.count(p.backpack(), product) - start), wanted);
 		}
 		else if (r == BlockBreaker.Result.FAILED) {
@@ -253,7 +309,18 @@ public final class MineJob implements Job {
 		if (!safe) {
 			dir = dir.getClockWise();
 			if (++turns > 4) {
-				brain.say("no_ore");
+				// Boxed in (water, lava, a base around, hard rock): walk to a fresh spot and look again.
+				if (hops < 3) {
+					hops++;
+					turns = 0;
+					dir = null;
+					hopTicks = 0;
+					hopGoal = freshSpot(p, level);
+					brain.report("ore_relocate", hops);
+					return Status.RUNNING;
+				}
+				if (Gear.count(p.backpack(), product) > start) brain.say("done_ore", summary());
+				else noOre(brain, level);
 				return Gear.count(p.backpack(), product) > start ? Status.DONE : Status.FAILED;
 			}
 			return Status.RUNNING;
