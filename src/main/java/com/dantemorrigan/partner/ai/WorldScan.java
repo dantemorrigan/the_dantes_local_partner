@@ -53,6 +53,10 @@ public final class WorldScan {
 					if (!level.getBlockState(below).is(BlockTags.DIRT) && !level.getBlockState(below).is(Blocks.MUD)) continue;
 					BlockPos base = m.immutable();
 					if (skip.contains(base)) continue;
+					if (com.dantemorrigan.partner.Territory.isProtected(level, base)) {
+						skip.add(base);
+						continue;
+					}
 					double d = base.distSqr(from);
 					if (d < bestD && isNaturalLog(level, base)) {
 						bestD = d;
@@ -100,6 +104,10 @@ public final class WorldScan {
 					if (!what.test(s)) continue;
 					double d = m.distSqr(from);
 					if (d >= bestD || skip.contains(m) || !exposed(level, m)) continue;
+					if (com.dantemorrigan.partner.Territory.isProtected(level, m)) {
+						skip.add(m.immutable());
+						continue;
+					}
 					bestD = d;
 					best = m.immutable();
 				}

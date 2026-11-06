@@ -35,6 +35,22 @@ public final class MineJob implements Job {
 	private @Nullable Direction dir;
 	private int turns, tunnel, sinceTorch, moveTicks;
 	private @Nullable BlockPos stepTarget;
+	private @Nullable Vec3 leaveTarget;
+	private int leaveTicks;
+
+	/** A point ~16 blocks further away from the owner's home (or the owner), on the surface. */
+	private static Vec3 awayFromHome(PartnerBrain brain, ServerLevel level) {
+		PartnerEntity p = brain.p;
+		var owner = p.getOwnerPlayer();
+		BlockPos home = owner == null ? null : com.dantemorrigan.partner.Territory.home(owner, level);
+		Vec3 from = home != null ? Vec3.atCenterOf(home) : owner != null ? owner.position() : p.position();
+		Vec3 dir = p.position().subtract(from).multiply(1, 0, 1);
+		if (dir.lengthSqr() < 1) dir = new Vec3(p.getRandom().nextDouble() - 0.5, 0, p.getRandom().nextDouble() - 0.5);
+		dir = dir.normalize().yRot((float) ((p.getRandom().nextDouble() - 0.5) * 0.8));
+		Vec3 t = p.position().add(dir.scale(16));
+		BlockPos top = level.getHeightmapPos(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, BlockPos.containing(t));
+		return Vec3.atBottomCenterOf(top);
+	}
 
 	public MineJob(WorldScan.OreKind kind, int wanted) {
 		this.kind = kind;
@@ -192,6 +208,15 @@ public final class MineJob implements Job {
 	private Status staircase(PartnerBrain brain, ServerLevel level) {
 		PartnerEntity p = brain.p;
 		if (dir == null) {
+			// Never dig a hole in someone's base: walk out of the players' territory first.
+			if (com.dantemorrigan.partner.Territory.isProtected(level, p.blockPosition())) {
+				if (leaveTarget == null || ++leaveTicks % 100 == 0) leaveTarget = awayFromHome(brain, level);
+				if (leaveTicks > 20 * 40) return Status.FAILED;
+				brain.report("leave_base");
+				if (p.tickCount % 10 == 0 || p.getNavigation().isDone()) p.getNavigation().moveTo(leaveTarget.x, leaveTarget.y, leaveTarget.z, PartnerEntity.SPRINT);
+				brain.jumpIfBlocked(leaveTarget);
+				return Status.RUNNING;
+			}
 			dir = p.getDirection();
 			stepTarget = null;
 		}
@@ -222,7 +247,8 @@ public final class MineJob implements Job {
 				&& !floor.is(Blocks.MAGMA_BLOCK);
 		for (BlockPos c : clear) {
 			BlockState s = level.getBlockState(c);
-			if (!WorldScan.diggable(s) || WorldScan.dangerousFluidNear(level, c) || brain.badBlocks.contains(c)) safe = false;
+			if (!WorldScan.diggable(s) || WorldScan.dangerousFluidNear(level, c) || brain.badBlocks.contains(c)
+					|| com.dantemorrigan.partner.Territory.isProtected(level, c)) safe = false;
 		}
 		if (!safe) {
 			dir = dir.getClockWise();

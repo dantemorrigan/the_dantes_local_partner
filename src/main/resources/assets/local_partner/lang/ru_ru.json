@@ -183,5 +183,6 @@
   "partner.local_partner.plan.craft": "сделать снаряжение за верстаком",
   "partner.local_partner.plan.stock_food": "запастись едой",
   "partner.local_partner.plan.stock_coal": "запастись углём для факелов",
-  "partner.local_partner.plan.prospect": "поискать руду в округе"
+  "partner.local_partner.plan.prospect": "поискать руду в округе",
+  "partner.local_partner.say.leave_base": "Тут ваша база — копать не буду, отойду подальше."
 }

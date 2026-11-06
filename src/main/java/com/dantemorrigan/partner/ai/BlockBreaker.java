@@ -35,7 +35,17 @@ public final class BlockBreaker {
 		return hardness >= 0 && hardness < 40 && level.getBlockEntity(pos) == null;
 	}
 
+	/** Breaks a block, never inside the players' territory (builds, homes; see {@link com.dantemorrigan.partner.Territory}). */
 	public Result tick(PartnerEntity p, ServerLevel level, BlockPos target) {
+		return tick(p, level, target, false);
+	}
+
+	/** {@code own}: a block the partner placed itself (its crafting table), allowed anywhere. */
+	public Result tick(PartnerEntity p, ServerLevel level, BlockPos target, boolean own) {
+		if (!own && !target.equals(pos) && com.dantemorrigan.partner.Territory.isProtected(level, target)) {
+			cancel(level, p);
+			return Result.FAILED;
+		}
 		if (!target.equals(pos)) {
 			cancel(level, p);
 			pos = target.immutable();

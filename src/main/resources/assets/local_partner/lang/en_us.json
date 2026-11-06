@@ -183,5 +183,6 @@
   "partner.local_partner.plan.craft": "craft gear at a table",
   "partner.local_partner.plan.stock_food": "stock up on food",
   "partner.local_partner.plan.stock_coal": "stock up on coal for torches",
-  "partner.local_partner.plan.prospect": "prospect for ore around here"
+  "partner.local_partner.plan.prospect": "prospect for ore around here",
+  "partner.local_partner.say.leave_base": "This is your base, I won't dig here. Moving away first."
 }

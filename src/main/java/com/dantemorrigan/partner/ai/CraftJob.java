@@ -124,7 +124,7 @@ public final class CraftJob implements Job {
 					brain.approach(table);
 					return Status.RUNNING;
 				}
-				BlockBreaker.Result r = brain.breaker.tick(p, level, table);
+				BlockBreaker.Result r = brain.breaker.tick(p, level, table, true);
 				if (r != BlockBreaker.Result.WORKING) {
 					stage = Stage.COLLECT;
 					workTicks = 0;
