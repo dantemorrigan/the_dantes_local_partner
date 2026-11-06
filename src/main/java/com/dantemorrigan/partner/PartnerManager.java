@@ -42,14 +42,15 @@ public final class PartnerManager {
 			.persistent(Codec.unboundedMap(Codec.STRING, CompoundTag.CODEC)).buildAndRegister(LocalPartner.id("partners"));
 
 	public static final int RESPAWN_TICKS = 20 * 30;
-	private static final int SNAPSHOT_EVERY = 20 * 30;
-	private static final int LOST_AFTER = 20 * 10;
+	private static final int SNAPSHOT_EVERY = 20 * 5;
+	private static final int LOST_AFTER = 20 * 20;
 
 	private static final Map<UUID, PartnerEntity> LIVE = new HashMap<>();
 	private static final Map<UUID, Integer> MISSING = new HashMap<>();
 	private static final Map<UUID, Integer> NO_SPOT = new HashMap<>();
 	private static Map<String, CompoundTag> records = new HashMap<>();
 	private static MinecraftServer server;
+	private static boolean loaded;
 
 	public static void init() {
 		ServerLifecycleEvents.SERVER_STARTED.register(s -> {
@@ -57,8 +58,17 @@ public final class PartnerManager {
 			records = new HashMap<>(s.overworld().getAttachedOrElse(RECORDS, Map.of()));
 			LIVE.clear();
 			MISSING.clear();
+			loaded = true;
+			records.forEach((owner, rec) -> LocalPartner.LOG.info("Partner record {}: {}", owner, describe(rec)));
 		});
-		ServerLifecycleEvents.SERVER_STOPPED.register(s -> { server = null; LIVE.clear(); records = new HashMap<>(); });
+		// The world is about to be written: bring the saved backup up to date first, so even a world that is
+		// not closed cleanly later (crash, IDE stop button) has the partner's current backpack.
+		ServerLifecycleEvents.BEFORE_SAVE.register((s, flush, force) -> snapshotAll(s));
+		// Closing the world: put every partner into its record explicitly, before anything is saved.
+		ServerLifecycleEvents.SERVER_STOPPING.register(s -> {
+			for (ServerPlayer owner : new java.util.ArrayList<>(s.getPlayerList().getPlayers())) stash(owner, false);
+		});
+		ServerLifecycleEvents.SERVER_STOPPED.register(s -> { loaded = false; server = null; LIVE.clear(); records = new HashMap<>(); });
 		ServerTickEvents.END_SERVER_TICK.register(PartnerManager::tick);
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, s) -> stash(handler.getPlayer(), false));
 		ServerEntityLevelChangeEvents.AFTER_PLAYER_CHANGE_LEVEL.register((player, from, to) -> ownerChangedLevel(player, to));
@@ -172,7 +182,9 @@ public final class PartnerManager {
 
 	/** True when this entity is the one the owner's record points to (old copies remove themselves). */
 	public static boolean isCurrent(PartnerEntity partner) {
-		if (server == null || partner.getOwnerUUID() == null) return false;
+		// Before the manager has loaded its records (world still starting) nothing may be thrown away.
+		if (server == null || !loaded) return true;
+		if (partner.getOwnerUUID() == null) return false;
 		CompoundTag rec = records.get(partner.getOwnerUUID().toString());
 		if (rec == null) return false;
 		boolean current = rec.getStringOr("entity", "").equals(partner.getUUID().toString()) && !rec.contains("stash");
@@ -215,8 +227,13 @@ public final class PartnerManager {
 				PartnerEntity partner = find(owner);
 				if (partner == null) {
 					int missing = MISSING.merge(owner.getUUID(), 1, Integer::sum);
+					if (missing == 20) {
+						// Not found: it may simply be standing in a chunk that is not loaded (it roams far). Load it.
+						if (loadItsChunk(owner, rec)) LocalPartner.LOG.info("Partner of {} not found, loaded its last chunk", owner.getGameProfile().name());
+					}
 					if (missing > LOST_AFTER && rec.contains("snapshot")) {
-						// Lost track of it (chunk gone, crash, external removal): bring the last backup back.
+						// Really gone (removed from outside): bring the last backup back.
+						LocalPartner.LOG.warn("Partner of {} is gone, restoring the backup: {}", owner.getGameProfile().name(), describe(rec.getCompoundOrEmpty("snapshot")));
 						CompoundTag r = rec.copy();
 						r.put("stash", r.getCompoundOrEmpty("snapshot"));
 						put(owner.getUUID(), r);
@@ -224,18 +241,53 @@ public final class PartnerManager {
 					}
 				} else {
 					MISSING.remove(owner.getUUID());
-					if (partner.tickCount % SNAPSHOT_EVERY == 0) {
-						CompoundTag r = rec.copy();
-						r.put("snapshot", save(partner));
-						put(owner.getUUID(), r);
-					}
+					if (partner.tickCount > 40 && partner.tickCount % SNAPSHOT_EVERY == 0) snapshot(owner, partner);
 				}
 			}
 			if (time % 10 == 0) sendStatus(owner);
 		}
 	}
 
+	/** Writes the partner's current state (and where it is) into its record as the backup. */
+	private static void snapshot(ServerPlayer owner, PartnerEntity partner) {
+		CompoundTag rec = records.get(owner.getUUID().toString());
+		if (rec == null || rec.contains("stash")) return;
+		CompoundTag r = rec.copy();
+		r.put("snapshot", save(partner));
+		r.putString("dim", partner.level().dimension().identifier().toString());
+		r.putIntArray("pos", new int[]{partner.getBlockX(), partner.getBlockY(), partner.getBlockZ()});
+		put(owner.getUUID(), r);
+	}
+
+	private static void snapshotAll(MinecraftServer s) {
+		for (ServerPlayer owner : s.getPlayerList().getPlayers()) {
+			PartnerEntity p = find(owner);
+			if (p != null && p.isAlive() && p.tickCount > 5) snapshot(owner, p);
+		}
+	}
+
+	/** Loads the chunk where the partner was last seen (it may roam far from every player). */
+	private static boolean loadItsChunk(ServerPlayer owner, CompoundTag rec) {
+		if (server == null || !rec.contains("pos") || !rec.contains("dim")) return false;
+		int[] pos = rec.getIntArray("pos").orElse(new int[0]);
+		if (pos.length != 3) return false;
+		String dim = rec.getStringOr("dim", "");
+		for (ServerLevel level : server.getAllLevels()) {
+			if (!level.dimension().identifier().toString().equals(dim)) continue;
+			level.getChunk(pos[0] >> 4, pos[2] >> 4); // synchronous load; the entity registers with it
+			return true;
+		}
+		return false;
+	}
+
+	private static String describe(CompoundTag rec) {
+		CompoundTag data = rec.contains("stash") ? rec.getCompoundOrEmpty("stash") : rec.contains("snapshot") ? rec.getCompoundOrEmpty("snapshot") : rec;
+		int items = data.getListOrEmpty("Backpack").size();
+		return (rec.contains("stash") ? "stashed" : "in world") + ", backpack stacks=" + items + (rec.contains("respawn") ? ", respawning" : "");
+	}
+
 	private static void restore(ServerPlayer owner, CompoundTag rec, boolean afterDeath) {
+		LocalPartner.LOG.info("Restoring the partner of {}: {}", owner.getGameProfile().name(), describe(rec));
 		ServerLevel level = owner.level();
 		PartnerEntity partner = load(level, rec.getCompoundOrEmpty("stash"));
 		CompoundTag r = rec.copy();
@@ -282,7 +334,17 @@ public final class PartnerManager {
 		CompoundTag rec = record(owner);
 		if (rec == null || rec.contains("stash")) return;
 		PartnerEntity partner = find(owner);
-		if (partner == null) return;
+		if (partner == null && !travel && loadItsChunk(owner, rec)) partner = find(owner); // far away, chunk not loaded
+		if (partner == null) {
+			// Still not found: the newest backup is the best there is (kept as the stash, so nothing is lost).
+			if (!travel && rec.contains("snapshot")) {
+				LocalPartner.LOG.warn("Partner of {} not found while leaving, stashing the backup: {}", owner.getGameProfile().name(), describe(rec.getCompoundOrEmpty("snapshot")));
+				CompoundTag r = rec.copy();
+				r.put("stash", r.getCompoundOrEmpty("snapshot"));
+				put(owner.getUUID(), r);
+			}
+			return;
+		}
 		CompoundTag r = rec.copy();
 		r.put("stash", save(partner));
 		if (travel) r.putBoolean("travel", true);

@@ -64,3 +64,17 @@ fabricApi {
 		eula = true
 	}
 }
+
+// ./gradlew runClientGameTest -PonlyTest=PersistenceTest — run a single client game test class.
+def onlyTest = providers.gradleProperty('onlyTest').getOrNull()
+tasks.named('processGametestResources') {
+	inputs.property('onlyTest', onlyTest ?: '')
+	doLast {
+		if (onlyTest != null) {
+			def metadata = new File(destinationDir, 'fabric.mod.json')
+			def data = new groovy.json.JsonSlurper().parse(metadata)
+			data.entrypoints['fabric-client-gametest'] = ['com.dantemorrigan.partner.gametest.' + onlyTest]
+			metadata.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(data))
+		}
+	}
+}

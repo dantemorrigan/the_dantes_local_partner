@@ -487,19 +487,14 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 		if (wasAlive && this.level() instanceof ServerLevel) PartnerManager.onPartnerDeath(this);
 	}
 
+	/**
+	 * A companion never loses what it carries: when it is knocked out it keeps its backpack and gear and comes back
+	 * with them (like keepInventory, whatever the world rule says). Only the owner's items it was gathering after
+	 * THEIR death are dropped if the partner itself dies on the way, so those are never destroyed either.
+	 */
 	@Override
 	protected void dropEquipment(ServerLevel level) {
-		if (level.getGameRules().get(GameRules.KEEP_INVENTORY)) return; // keeps everything, like a player
-		for (ItemStack s : backpack.removeAllItems()) this.spawnAtLocation(level, s);
 		for (ItemStack s : brain.ownerLoot.removeAllItems()) this.spawnAtLocation(level, s);
-		for (EquipmentSlot slot : EquipmentSlot.values()) {
-			if (slot.getType() == EquipmentSlot.Type.ANIMAL_ARMOR || slot == EquipmentSlot.SADDLE) continue;
-			ItemStack s = this.getItemBySlot(slot);
-			if (!s.isEmpty()) {
-				this.spawnAtLocation(level, s);
-				this.setItemSlot(slot, ItemStack.EMPTY);
-			}
-		}
 	}
 
 	@Override
