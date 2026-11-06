@@ -71,7 +71,15 @@ public final class CommandWheelScreen extends Screen {
 		return compact() ? TOP + GAP + wheel / 2f : TOP + (height - TOP - BOTTOM) / 2f;
 	}
 
+	private boolean hubHover;
+
+	private boolean onHub(double mx, double my) {
+		float sc = scale();
+		return Math.hypot((mx - cx()) / sc, (my - cy()) / sc) < INNER;
+	}
+
 	private Component description() {
+		if (focus < 0 && hubHover) return Component.translatable("local_partner.wheel.hub.desc");
 		if (focus < 0) return Component.translatable("local_partner.wheel.hover_hint");
 		if (!available(focus)) return Component.translatable("local_partner.wheel.unavailable_detail");
 		return Component.translatable("local_partner.command." + IDS[focus] + ".desc");
@@ -100,6 +108,7 @@ public final class CommandWheelScreen extends Screen {
 			lastMx = mx;
 			lastMy = my;
 			int under = sectorAt(mx, my);
+			hubHover = onHub(mx, my);
 			if (under >= 0 || !keyboard) {
 				focus = under;
 				keyboard = false;
@@ -138,7 +147,7 @@ public final class CommandWheelScreen extends Screen {
 		Ui.frame(g, "panel", cardX, cardY, cardW, cardH);
 		if (focus < 0) {
 			Ui.icon(g, "partner", cardX + 7, cardY + 7, 12);
-			Ui.fitText(g, Component.translatable("local_partner.wheel.neutral"), cardX + 23, cardY + 9, cardW - 30, Ui.ACCENT, false);
+			Ui.fitText(g, Component.translatable(hubHover ? "local_partner.wheel.hub" : "local_partner.wheel.neutral"), cardX + 23, cardY + 9, cardW - 30, Ui.ACCENT, false);
 			g.textWithWordWrap(font, description(), cardX + 7, cardY + 25, cardW - 14, Ui.MUTED, false);
 		} else if (!available(focus)) {
 			Ui.icon(g, "alert", cardX + 7, cardY + 7, 12);
@@ -172,6 +181,12 @@ public final class CommandWheelScreen extends Screen {
 
 	@Override
 	public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+		if (event.button() == 0 && onHub(event.x(), event.y()) && ClientState.present()) {
+			// The hub opens the partner's backpack.
+			if (ClientPlayNetworking.canSend(PartnerNetwork.Command.TYPE)) ClientPlayNetworking.send(new PartnerNetwork.Command("inventory"));
+			Minecraft.getInstance().setScreen(null);
+			return true;
+		}
 		if (event.button() == 0) {
 			int under = sectorAt(event.x(), event.y());
 			if (under >= 0) focus = under;

@@ -356,6 +356,16 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 		if (count > 0) causeExhaustion(0f);
 	}
 
+	/** Everything in the backpack (tools included); what it wears and holds stays on it. */
+	public void giveWholeBackpack(Player player) {
+		for (ItemStack s : brain.ownerLoot.removeAllItems()) giveTo(player, s);
+		for (int i = 0; i < backpack.getContainerSize(); i++) {
+			ItemStack s = backpack.removeItemNoUpdate(i);
+			if (!s.isEmpty()) giveTo(player, s);
+		}
+		backpack.setChanged();
+	}
+
 	/** Hands over the backpack (and with {@code gearToo}, everything it wears and holds). */
 	public void handEverythingTo(Player player, boolean gearToo) {
 		for (ItemStack s : brain.ownerLoot.removeAllItems()) giveTo(player, s);
@@ -378,7 +388,8 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 	}
 
 	public void openInventory(ServerPlayer player) {
-		player.openMenu(new SimpleMenuProvider((id, inv, p) -> ChestMenu.threeRows(id, inv, backpack), this.getDisplayName()));
+		player.openMenu(new SimpleMenuProvider((id, inv, p) -> ChestMenu.threeRows(id, inv, backpack),
+				Component.translatable("local_partner.backpack.title", this.getDisplayName())));
 		speak("inventory");
 	}
 

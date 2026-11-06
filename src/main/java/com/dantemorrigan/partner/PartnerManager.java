@@ -144,6 +144,16 @@ public final class PartnerManager {
 				partner.brain().reportStatus(owner);
 				return;
 			}
+			case "give_all", "give_res", "give" -> {
+				if (partner.distanceTo(owner) <= 8) {
+					// Right here (e.g. the backpack screen is open): hand it over at once.
+					if (order.equals("give_all")) partner.giveWholeBackpack(owner);
+					else partner.handEverythingTo(owner, false);
+					partner.speak("gave_all");
+				} else partner.setOrder(PartnerOrder.GIVE, owner);
+				sendStatus(owner);
+				return;
+			}
 			case "later" -> {
 				partner.brain().initiative.later();
 				return;

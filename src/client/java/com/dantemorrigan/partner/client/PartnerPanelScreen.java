@@ -47,6 +47,11 @@ public final class PartnerPanelScreen extends Screen {
 	// Button rects: left (Back/Cancel) and right (main action).
 	private int[] left() { return new int[]{x + 18, y + H - 34, 78, 20}; }
 	private int[] right() { return new int[]{x + 102, y + H - 34, W - 120, 20}; }
+	private int[] backpack() { return new int[]{x + 18, y + H - 58, W - 36, 20}; }
+
+	private boolean backpackShown() {
+		return !confirming && ClientState.state == 1;
+	}
 
 	@Override
 	public void extractRenderState(GuiGraphicsExtractor g, int mx, int my, float delta) {
@@ -66,10 +71,14 @@ public final class PartnerPanelScreen extends Screen {
 			else if (on && ClientState.state == 2) status = Component.translatable("local_partner.pause.waiting");
 			g.text(font, status, x + 30, y + 61, Ui.MUTED, false);
 			if (on) {
-				g.text(font, Component.translatable("local_partner.pause.hint", PartnerKeys.WHEEL.getTranslatedKeyMessage()), x + 18, y + 78, Ui.MUTED, false);
+				g.text(font, Component.translatable("local_partner.pause.hint", PartnerKeys.WHEEL.getTranslatedKeyMessage()), x + 18, y + 74, Ui.MUTED, false);
 			}
 			if (!ClientState.modOnServer) {
 				g.textWithWordWrap(font, Component.translatable("local_partner.pause.no_server"), x + 18, y + 78, W - 36, Ui.ALERT, false);
+			}
+			if (backpackShown()) {
+				int[] b = backpack();
+				Ui.button(g, Component.translatable("local_partner.pause.backpack"), b[0], b[1], b[2], b[3], Ui.Style.NORMAL, Ui.inside(mx, my, b[0], b[1], b[2], b[3]));
 			}
 			int[] l = left(), r = right();
 			Ui.button(g, Component.translatable("local_partner.pause.back"), l[0], l[1], l[2], l[3], Ui.Style.NORMAL, Ui.inside(mx, my, l[0], l[1], l[2], l[3]));
@@ -114,7 +123,12 @@ public final class PartnerPanelScreen extends Screen {
 	@Override
 	public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
 		if (event.button() != 0) return super.mouseClicked(event, doubleClick);
-		int[] l = left(), r = right();
+		int[] l = left(), r = right(), b = backpack();
+		if (backpackShown() && Ui.inside(event.x(), event.y(), b[0], b[1], b[2], b[3])) {
+			click();
+			ClientPlayNetworking.send(new PartnerNetwork.Command("inventory"));
+			return true;
+		}
 		if (Ui.inside(event.x(), event.y(), l[0], l[1], l[2], l[3])) back();
 		else if (Ui.inside(event.x(), event.y(), r[0], r[1], r[2], r[3])) main();
 		return true;
