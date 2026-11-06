@@ -77,7 +77,7 @@ public class PartnerTest implements FabricClientGameTest {
 			ctx.takeScreenshot("01_pause_entry");
 			ctx.runOnClient(mc -> {
 				for (var w : Screens.getWidgets(mc.screen)) {
-					if (w instanceof Button b && b.getMessage().getString().startsWith("Local Partner")) {
+					if (w instanceof net.minecraft.client.gui.components.AbstractButton b && b.getMessage().getString().startsWith("Local Partner")) {
 						b.onPress(null);
 						return;
 					}
