@@ -29,13 +29,18 @@ import java.util.Set;
 public final class ChopJob implements Job {
 	private static final int AREA = 28, TIME_LIMIT = 20 * 60 * 4;
 	private final int wanted;
-	private int startLogs = -1, spent, subLogsBefore, ticks, stuck, noTree, collect;
+	private int startLogs = -1, spent, subLogsBefore, ticks, stuck, noTree, collect, treeStartLogs;
 	private @Nullable BlockPos anchor, base, cutting;
 	private final List<BlockPos> treeLogs = new ArrayList<>();
 	private @Nullable Job sub;
 
 	public ChopJob(int wanted) {
 		this.wanted = wanted;
+	}
+
+	@Override
+	public int result(PartnerBrain brain) {
+		return startLogs < 0 ? 0 : gathered(brain) * 10 + (sub != null ? 1 : 0);
 	}
 
 	@Override
@@ -69,6 +74,7 @@ public final class ChopJob implements Job {
 		}
 		// Enough? (decided on its own)
 		int got = gathered(brain);
+		brain.detail = got + "/" + wanted;
 		boolean full = !p.backpack().canAddItem(new ItemStack(Items.OAK_LOG, 16));
 		if (got >= wanted || full || ticks > TIME_LIMIT && got > 0) {
 			brain.say(full ? "full" : "done_wood", got);
@@ -107,9 +113,12 @@ public final class ChopJob implements Job {
 			noTree = 0;
 			collectTree(level, base);
 			stuck = 0;
+			treeStartLogs = brain.logs();
+			brain.report("tree_go", level.getBlockState(base).getBlock().getName(), (int) Math.sqrt(base.distSqr(p.blockPosition())));
 		}
 		treeLogs.removeIf(pos -> !level.getBlockState(pos).is(BlockTags.LOGS) || brain.badBlocks.contains(pos));
 		if (treeLogs.isEmpty()) {
+			brain.report("tree_done", Math.max(0, brain.logs() - treeStartLogs), got, wanted);
 			replant(brain, level);
 			base = null;
 			cutting = null;

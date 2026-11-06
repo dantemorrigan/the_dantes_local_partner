@@ -22,12 +22,13 @@ import java.util.function.Predicate;
  * tunnel with torches when it has some. Makes itself a pickaxe first when it has none.
  */
 public final class MineJob implements Job {
-	private static final int TIME_LIMIT = 20 * 60 * 6;
+	private static final int TIME_LIMIT = 20 * 60 * 4;
 
 	private final WorldScan.OreKind kind;
 	private final int wanted;
 	private final Predicate<ItemStack> product;
-	private int start = -1, ticks, scanCooldown, stuck, collectTicks;
+	private int start = -1, ticks, scanCooldown, stuck, collectTicks, startY = Integer.MIN_VALUE, minY = Integer.MAX_VALUE;
+	private boolean announcedSearch, announcedDig;
 	private @Nullable BlockPos ore;
 	private @Nullable Job prerequisite;
 	// staircase state
@@ -72,6 +73,19 @@ public final class MineJob implements Job {
 	}
 
 	@Override
+	public int result(PartnerBrain brain) {
+		// Ore gathered, or new depth reached on the way down: both count as progress for the watchdog.
+		int depth = startY == Integer.MIN_VALUE ? 0 : Math.max(0, startY - minY);
+		int pre = prerequisite == null ? 0 : 100_000 + prerequisite.result(brain); // making a pickaxe counts too
+		return Math.max(0, Gear.count(brain.p.backpack(), product) - Math.max(start, 0)) * 1000 + depth + pre;
+	}
+
+	@Override
+	public int stallTicks() {
+		return 20 * 75;
+	}
+
+	@Override
 	public String activity() {
 		if (prerequisite != null) return prerequisite.activity();
 		return dir != null && ore == null ? "stairs" : "ore";
@@ -81,7 +95,15 @@ public final class MineJob implements Job {
 	public Status tick(PartnerBrain brain, ServerLevel level) {
 		PartnerEntity p = brain.p;
 		if (start < 0) start = Gear.count(p.backpack(), product);
+		if (startY == Integer.MIN_VALUE) startY = p.getBlockY();
+		minY = Math.min(minY, p.getBlockY());
 		int got = Gear.count(p.backpack(), product) - start;
+		brain.detail = dir != null && ore == null && p.getBlockY() > targetY(level, p)
+				? "Y " + p.getBlockY() + " → " + targetY(level, p) + " · " + got + "/" + wanted : got + "/" + wanted;
+		if (!announcedSearch && prerequisite == null) {
+			announcedSearch = true;
+			brain.report("ore_search_" + kind.name().toLowerCase());
+		}
 		if (got >= wanted) {
 			if (kind != WorldScan.OreKind.STONE) brain.say("done_ore", got);
 			return Status.DONE;
@@ -116,8 +138,13 @@ public final class MineJob implements Job {
 			int radius = dir == null ? 12 : 4;
 			ore = WorldScan.findExposed(level, p.blockPosition(), radius, dir == null ? 8 : 4, s -> mineable(brain, s), brain.badBlocks);
 			stuck = 0;
+			if (ore != null) brain.report("ore_found", level.getBlockState(ore).getBlock().getName(), (int) Math.sqrt(ore.distSqr(p.blockPosition())));
 		}
 		if (ore != null) return mineOre(brain, level);
+		if (!announcedDig) {
+			announcedDig = true;
+			brain.report("ore_dig", targetY(level, p));
+		}
 		return staircase(brain, level);
 	}
 
@@ -148,8 +175,12 @@ public final class MineJob implements Job {
 			}
 			return Status.RUNNING;
 		}
+		var oreName = level.getBlockState(target).getBlock().getName();
 		BlockBreaker.Result r = brain.breaker.tick(p, level, target);
-		if (r == BlockBreaker.Result.DONE) collectTicks = 40;
+		if (r == BlockBreaker.Result.DONE) {
+			collectTicks = 40;
+			brain.report("ore_mined", oreName, Math.max(0, Gear.count(p.backpack(), product) - start), wanted);
+		}
 		else if (r == BlockBreaker.Result.FAILED) {
 			brain.badBlocks.add(target);
 			ore = null;

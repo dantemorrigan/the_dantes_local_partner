@@ -32,11 +32,12 @@ public final class PartnerNetwork {
 	 * S2C: what the owner's partner is doing, for the pause button, the wheel and the HUD line.
 	 * state: 0 none, 1 present, 2 waiting (stashed: owner in a place it cannot follow), 3 dead (respawning).
 	 */
-	public record Status(int state, String order, String activity, float health, int food) implements CustomPacketPayload {
+	public record Status(int state, String order, String activity, String detail, int era, float health, int food) implements CustomPacketPayload {
 		public static final Type<Status> TYPE = newType("status");
 		public static final StreamCodec<ByteBuf, Status> CODEC = StreamCodec.composite(
 				ByteBufCodecs.VAR_INT, Status::state, ByteBufCodecs.STRING_UTF8, Status::order,
-				ByteBufCodecs.STRING_UTF8, Status::activity, ByteBufCodecs.FLOAT, Status::health,
+				ByteBufCodecs.STRING_UTF8, Status::activity, ByteBufCodecs.STRING_UTF8, Status::detail,
+				ByteBufCodecs.VAR_INT, Status::era, ByteBufCodecs.FLOAT, Status::health,
 				ByteBufCodecs.VAR_INT, Status::food, Status::new);
 		@Override public Type<Status> type() { return TYPE; }
 	}

@@ -34,6 +34,7 @@ public final class Smelter {
 			return;
 		}
 		if (burn <= 0 && !refuel(c, level)) return;
+		if (progress == 0) p.brain().report("smelt_start", c.getItem(input).getHoverName());
 		if (++progress < COOK_TIME) return;
 		progress = 0;
 		ItemStack raw = c.getItem(input);
@@ -41,6 +42,7 @@ public final class Smelter {
 		if (recipe.isEmpty()) return;
 		ItemStack out = recipe.get().value().assemble(new SingleRecipeInput(raw)).copy();
 		raw.shrink(1);
+		p.brain().report("smelt_done", out.getHoverName(), Gear.count(c, out.getItem()) + out.getCount());
 		ItemStack rest = c.addItem(out);
 		if (!rest.isEmpty()) p.spawnAtLocation(level, rest);
 		c.setChanged();

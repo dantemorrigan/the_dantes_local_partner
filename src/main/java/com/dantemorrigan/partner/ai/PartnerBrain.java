@@ -67,6 +67,11 @@ public final class PartnerBrain {
 	private int recoverTicks;
 
 	private @Nullable Job job;
+	/** Short progress detail for the HUD ("7/16", "Y 23 → 16"...), set by the running job. */
+	public String detail = "";
+	private final Map<String, Integer> reportAt = new HashMap<>();
+	private int lastResult = Integer.MIN_VALUE, lastResultTick, era = -1;
+	private boolean sleeping;
 	/** The current job was started by the partner itself (self-development while following), not by an order. */
 	private boolean selfJob;
 	private @Nullable Vec3 selfAnchor;
@@ -175,6 +180,8 @@ public final class PartnerBrain {
 		}
 		if (survive(level, owner)) return;
 		if (parkour.tickAir(p)) return; // mid-jump: let it land
+		if (sleep(level, owner)) return;
+		if (p.tickCount % 40 == 0) checkEra();
 		if (recover(level, owner)) return;
 		trackCalm(owner);
 		if (stayTogether(level, owner)) return;
@@ -569,8 +576,8 @@ public final class PartnerBrain {
 		PartnerOrder order = p.order();
 		// Self-development while following: drop it as soon as the owner moves on.
 		if (job != null && selfJob && order != PartnerOrder.FREE) {
-			boolean ownerLeft = selfAnchor != null && owner.position().distanceToSqr(selfAnchor) > 20 * 20;
-			boolean tooFar = horizontalDistSqr(p.position(), owner.position()) > 32 * 32;
+			boolean ownerLeft = selfAnchor != null && owner.position().distanceToSqr(selfAnchor) > 24 * 24;
+			boolean tooFar = horizontalDistSqr(p.position(), owner.position()) > 36 * 36;
 			if (ownerLeft || tooFar || order != PartnerOrder.FOLLOW && !(job instanceof HuntJob)) {
 				stopJob(level);
 				say("coming");
@@ -578,6 +585,7 @@ public final class PartnerBrain {
 		}
 		if (job != null) {
 			Job.Status status = job.tick(this, level);
+			if (status == Job.Status.RUNNING && stalled(level)) status = Job.Status.FAILED;
 			if (status == Job.Status.RUNNING) {
 				p.setActivity(job.activity());
 				return;
@@ -604,7 +612,7 @@ public final class PartnerBrain {
 			case WOOD, ORE, GIVE -> p.setOrderQuiet(PartnerOrder.FOLLOW);
 			default -> {
 				// Following and the owner is busy in one place: use the time to grow (gear, food, ore).
-				if (calmTicks >= 20 * 8 && !inFight() && p.tickCount % 20 == 0 && !AutoJob.nothingToDo(this)) {
+				if (calmTicks >= 20 * 4 && !inFight() && p.tickCount % 20 == 0 && !AutoJob.nothingToDo(this)) {
 					job = new AutoJob();
 					selfJob = true;
 					selfAnchor = owner.position();
@@ -669,6 +677,8 @@ public final class PartnerBrain {
 	private void stopJob(ServerLevel level) {
 		if (job != null) job.stop(this, level);
 		job = null;
+		detail = "";
+		lastResult = Integer.MIN_VALUE;
 		selfJob = false;
 		parkour.cancel();
 		breaker.cancel(level, p);
@@ -714,6 +724,135 @@ public final class PartnerBrain {
 		return "job=" + job + " target=" + target + " logs=" + logs() + " stuck=" + stuckTicks;
 	}
 
+	/**
+	 * Progress watchdog: a job that has not produced a result (its own measure: ore, logs, food, depth, crafts) for
+	 * a while is dropped. Free mode only drops the current step and puts that topic aside.
+	 */
+	private boolean stalled(ServerLevel level) {
+		if (job == null) return false;
+		int result = job.result(this);
+		int limit = job.stallTicks();
+		if (result == Integer.MIN_VALUE || limit <= 0) return false;
+		if (result != lastResult) {
+			lastResult = result;
+			lastResultTick = p.tickCount;
+			return false;
+		}
+		if (p.tickCount - lastResultTick < limit) return false;
+		lastResultTick = p.tickCount;
+		if (job.onStall(this, level)) return false; // handled inside (free mode switched topics)
+		report("stalled", Component.translatable("partner.local_partner.activity." + job.activity()), limit / 20);
+		return true;
+	}
+
+	/** Progress lines: each kind at most every 12 s, any at most every 3 s (fights and alerts use {@link #say}). */
+	public void report(String key, Object... args) {
+		Integer at = reportAt.get(key);
+		Integer any = reportAt.get("*");
+		if (at != null && p.tickCount - at < 240 || any != null && p.tickCount - any < 60) return;
+		reportAt.put(key, p.tickCount);
+		reportAt.put("*", p.tickCount);
+		p.speak(key, args);
+	}
+
+	/** Eras of Minecraft progress, from the best pickaxe and armor it owns. */
+	public int era() {
+		int tier = pickTier();
+		boolean iron = Gear.armorValue(p.getItemBySlot(net.minecraft.world.entity.EquipmentSlot.CHEST)) >= 12;
+		if (tier >= 5) return 5;
+		if (tier >= 4) return 4;
+		if (tier >= 3 || iron) return 3;
+		if (tier >= 2) return 2;
+		return tier >= 1 ? 1 : 0;
+	}
+
+	private void checkEra() {
+		int now = era();
+		if (era < 0) {
+			era = now;
+			return;
+		}
+		if (now > era) {
+			era = now;
+			p.speak("era_up", Component.translatable("partner.local_partner.era." + now));
+			p.playSound(net.minecraft.sounds.SoundEvents.PLAYER_LEVELUP, 0.6f, 1.2f);
+		}
+	}
+
+	// ------------------------------------------------------------------ sleep with the owner
+
+	private int bedSearch;
+	private @Nullable BlockPos bed;
+
+	/** The owner went to bed: find a free bed nearby (or lie down on the ground next to them) and sleep too. */
+	private boolean sleep(ServerLevel level, ServerPlayer owner) {
+		boolean ownerSleeps = owner.isSleeping() && p.distanceTo(owner) < 40 && !inFight();
+		if (!ownerSleeps) {
+			if (sleeping) wakeUp();
+			return false;
+		}
+		p.setActivity("sleep");
+		detail = "";
+		if (sleeping) return true;
+		stopJob(level);
+		if (bed == null && bedSearch-- <= 0) {
+			bedSearch = 40;
+			bed = findBed(level);
+		}
+		if (bed != null) {
+			if (!level.getBlockState(bed).is(net.minecraft.tags.BlockTags.BEDS) || level.getBlockState(bed).getValue(net.minecraft.world.level.block.BedBlock.OCCUPIED)) {
+				bed = null;
+				return true;
+			}
+			if (p.position().distanceToSqr(Vec3.atCenterOf(bed)) > 2.5 * 2.5) {
+				if (p.tickCount % 10 == 0 || p.getNavigation().isDone()) p.getNavigation().moveTo(bed.getX() + 0.5, bed.getY(), bed.getZ() + 0.5, PartnerEntity.WALK);
+				return true;
+			}
+			p.getNavigation().stop();
+			p.startSleeping(bed);
+		} else {
+			// No free bed: lie down on the ground right next to the owner.
+			if (p.distanceTo(owner) > 2.5) {
+				walkTo(owner, PartnerEntity.WALK);
+				return true;
+			}
+			p.getNavigation().stop();
+			p.setPose(net.minecraft.world.entity.Pose.SLEEPING);
+		}
+		sleeping = true;
+		raiseShield(false);
+		p.speak("good_night");
+		return true;
+	}
+
+	private void wakeUp() {
+		sleeping = false;
+		bed = null;
+		if (p.isSleeping()) p.stopSleeping();
+		p.setPose(net.minecraft.world.entity.Pose.STANDING);
+		p.speak("good_morning");
+	}
+
+	private @Nullable BlockPos findBed(ServerLevel level) {
+		BlockPos best = null;
+		double bestD = Double.MAX_VALUE;
+		for (BlockPos pos : BlockPos.betweenClosed(p.blockPosition().offset(-16, -4, -16), p.blockPosition().offset(16, 4, 16))) {
+			var st = level.getBlockState(pos);
+			if (!st.is(net.minecraft.tags.BlockTags.BEDS) || st.getValue(net.minecraft.world.level.block.BedBlock.OCCUPIED)) continue;
+			if (st.getValue(net.minecraft.world.level.block.BedBlock.PART) != net.minecraft.world.level.block.state.properties.BedPart.HEAD) continue;
+			double d = pos.distSqr(p.blockPosition());
+			if (d < bestD) {
+				bestD = d;
+				best = pos.immutable();
+			}
+		}
+		return best;
+	}
+
+	public boolean sleeping() {
+		return sleeping;
+	}
+
 	public void say(String key, Object... args) {
 		if (chatterCooldown > 0 && !key.startsWith("done")) return;
 		chatterCooldown = 60;
@@ -725,6 +864,8 @@ public final class PartnerBrain {
 		Component activity = Component.translatable("partner.local_partner.activity." + (p.activity().isEmpty() ? "follow" : p.activity()));
 		player.sendSystemMessage(PartnerEntity.chat(p, Component.translatable("partner.local_partner.status",
 				order, activity, (int) Math.ceil(p.getHealth()), p.foodLevel())));
+		player.sendSystemMessage(PartnerEntity.chat(p, Component.translatable("partner.local_partner.status2",
+				Component.translatable("partner.local_partner.era." + era()), detail.isEmpty() ? "—" : detail)));
 	}
 
 	public int pickTier() {
@@ -742,11 +883,13 @@ public final class PartnerBrain {
 
 	public void save(ValueOutput out) {
 		smelter.save(out);
+		out.putInt("Era", Math.max(era, 0));
 		if (!ownerLoot.isEmpty()) ownerLoot.storeAsItemList(out.list("OwnerLoot", ItemStack.CODEC));
 	}
 
 	public void load(ValueInput in) {
 		smelter.load(in);
+		era = in.getIntOr("Era", -1);
 		in.list("OwnerLoot", ItemStack.CODEC).ifPresent(ownerLoot::fromItemList);
 	}
 }

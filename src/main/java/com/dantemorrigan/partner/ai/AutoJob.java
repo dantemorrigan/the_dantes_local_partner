@@ -23,6 +23,27 @@ public final class AutoJob implements Job {
 	private int idle;
 
 	@Override
+	public int result(PartnerBrain brain) {
+		return step == null ? Integer.MIN_VALUE : step.result(brain);
+	}
+
+	@Override
+	public int stallTicks() {
+		return step == null ? 0 : step.stallTicks();
+	}
+
+	/** The current step brings nothing: drop it, put the topic aside for a while and pick something else. */
+	@Override
+	public boolean onStall(PartnerBrain brain, ServerLevel level) {
+		if (step == null) return false;
+		brain.report("auto_switch", net.minecraft.network.chat.Component.translatable("partner.local_partner.plan." + stepKey));
+		step.stop(brain, level);
+		step = null;
+		brain.autoBlocked.put(stepKey, brain.p.tickCount + 20 * 60 * 6);
+		return true;
+	}
+
+	@Override
 	public String activity() {
 		return step != null ? step.activity() : "free";
 	}
@@ -72,7 +93,18 @@ public final class AutoJob implements Job {
 		int diamondsWanted = diamondsWanted(p);
 		if (tier >= 3 && Gear.count(c, Items.DIAMOND) < diamondsWanted
 				&& start(brain, "diamond", new MineJob(WorldScan.OreKind.DIAMOND, Math.min(5, diamondsWanted - Gear.count(c, Items.DIAMOND))))) return true;
+		// Beyond the gear: keep stocks up and keep prospecting (each at most every few minutes).
+		if (tier >= 2 && Gear.foodPoints(c) < 40 && start(brain, "stock_food", new HuntJob(48))) return dryRun || block(brain, "stock_food", 5);
+		if (tier >= 2 && Gear.count(c, Items.TORCH) < 16 && Gear.count(c, s -> s.is(ItemTags.COALS)) < 4
+				&& start(brain, "stock_coal", new MineJob(WorldScan.OreKind.COAL, 8))) return dryRun || block(brain, "stock_coal", 5);
+		if (tier >= 2 && start(brain, "prospect", new MineJob(WorldScan.OreKind.ANY, 10))) return dryRun || block(brain, "prospect", 10);
 		return false;
+	}
+
+	/** Runs the step now, and does not repeat it for the next few minutes. */
+	private static boolean block(PartnerBrain brain, String key, int minutes) {
+		brain.autoBlocked.put(key, brain.p.tickCount + 20 * 60 * minutes);
+		return true;
 	}
 
 	/** True when the plan has nothing left to work on right now (same checks as {@link #choose}, without starting). */
@@ -89,6 +121,7 @@ public final class AutoJob implements Job {
 		Integer until = brain.autoBlocked.get(key);
 		if (until != null && until > brain.p.tickCount) return false;
 		if (dryRun) return true;
+		brain.report("plan", net.minecraft.network.chat.Component.translatable("partner.local_partner.plan." + key));
 		step = job;
 		stepKey = key;
 		return true;

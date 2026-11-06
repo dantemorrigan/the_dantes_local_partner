@@ -39,6 +39,16 @@ public final class CraftJob implements Job {
 	}
 
 	@Override
+	public int result(PartnerBrain brain) {
+		return crafted * 10 + stage.ordinal();
+	}
+
+	@Override
+	public int stallTicks() {
+		return 20 * 30;
+	}
+
+	@Override
 	public String activity() {
 		return "craft";
 	}
@@ -64,6 +74,7 @@ public final class CraftJob implements Job {
 				p.swing(InteractionHand.MAIN_HAND);
 				level.setBlockAndUpdate(spot, Blocks.CRAFTING_TABLE.defaultBlockState());
 				level.playSound(null, spot, SoundEvents.WOOD_PLACE, SoundSource.BLOCKS, 1f, 0.8f);
+				brain.report("table_placed");
 				table = spot;
 				ownTable = true;
 				stage = Stage.WALK;
@@ -91,6 +102,7 @@ public final class CraftJob implements Job {
 					level.playSound(null, table, SoundEvents.WOOD_HIT, SoundSource.BLOCKS, 0.5f, 1.2f + p.getRandom().nextFloat() * 0.2f);
 				}
 				if (workTicks % 12 != 0) return Status.RUNNING;
+				brain.detail = crafted + "/" + (crafted + queue.size());
 				Item next = queue.poll();
 				if (next != null) {
 					if (Crafting.craft(p, next)) {
@@ -119,6 +131,7 @@ public final class CraftJob implements Job {
 				}
 			}
 			case COLLECT -> {
+				if (workTicks == 0 && ownTable) brain.report("table_packed");
 				if (table != null && ownTable && ++workTicks < 40 && brain.collectDrops(level, Vec3.atCenterOf(table), 4)) return Status.RUNNING;
 				return crafted > 0 ? Status.DONE : Status.FAILED;
 			}

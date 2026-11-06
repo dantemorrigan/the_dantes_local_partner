@@ -407,20 +407,20 @@ public final class PartnerManager {
 	public static void sendStatus(ServerPlayer owner) {
 		CompoundTag rec = record(owner);
 		if (rec == null) {
-			PartnerNetwork.send(owner, new PartnerNetwork.Status(0, "", "", 0f, 0));
+			PartnerNetwork.send(owner, new PartnerNetwork.Status(0, "", "", "", 0, 0f, 0));
 			return;
 		}
 		if (rec.contains("stash")) {
 			boolean dead = rec.contains("respawn");
-			PartnerNetwork.send(owner, new PartnerNetwork.Status(dead ? 3 : 2, "", "", 0f, 0));
+			PartnerNetwork.send(owner, new PartnerNetwork.Status(dead ? 3 : 2, "", "", "", 0, 0f, 0));
 			return;
 		}
 		PartnerEntity p = find(owner);
 		if (p == null) {
-			PartnerNetwork.send(owner, new PartnerNetwork.Status(2, "", "", 0f, 0));
+			PartnerNetwork.send(owner, new PartnerNetwork.Status(2, "", "", "", 0, 0f, 0));
 			return;
 		}
-		PartnerNetwork.send(owner, new PartnerNetwork.Status(1, p.order().id, p.activity(), p.getHealth(), p.foodLevel()));
+		PartnerNetwork.send(owner, new PartnerNetwork.Status(1, p.order().id, p.activity(), p.brain().detail, p.brain().era(), p.getHealth(), p.foodLevel()));
 	}
 
 	private static void say(ServerPlayer owner, String key) {

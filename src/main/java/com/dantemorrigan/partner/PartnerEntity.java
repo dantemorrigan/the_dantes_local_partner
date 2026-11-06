@@ -242,6 +242,7 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 
 	/** Crouches while standing at a dangerous edge (a long drop or lava below), like a careful player. */
 	private void updateCaution() {
+		if (this.hasPose(net.minecraft.world.entity.Pose.SLEEPING)) return;
 		boolean edge = false;
 		if (this.onGround() && !this.isSprinting()) {
 			double r = 0.45;

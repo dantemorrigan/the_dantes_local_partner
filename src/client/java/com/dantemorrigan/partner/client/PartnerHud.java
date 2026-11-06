@@ -84,9 +84,23 @@ public final class PartnerHud {
 			alpha = ClientState.toastAlpha();
 		} else {
 			String order = ClientState.order.isEmpty() ? "follow" : ClientState.order;
-			icon = ClientState.state == 1 ? order : "alert";
-			line = ClientState.state == 1 ? Component.translatable("local_partner.status." + order)
-					: Component.translatable(ClientState.state == 3 ? "local_partner.pause.respawning" : "local_partner.pause.waiting");
+			icon = ClientState.state != 1 ? "alert" : switch (ClientState.activity) {
+				case "wood" -> "wood";
+				case "ore", "stairs" -> "ore";
+				case "fight", "fight_boss", "guard", "retreat" -> "guard";
+				case "patrol" -> "patrol";
+				case "help_food", "recover", "returning" -> "assist";
+				case "hunt", "craft", "free", "sleep" -> "free";
+				default -> order;
+			};
+			// What it is doing right now (activity), with the progress detail; the order is the fallback.
+			if (ClientState.state == 1) {
+				Component what = ClientState.activity.isEmpty() ? Component.translatable("local_partner.status." + order)
+						: Component.translatable("partner.local_partner.activity." + ClientState.activity);
+				line = ClientState.detail.isEmpty() ? what : Component.empty().append(what).append(Component.literal("  " + ClientState.detail).withColor(Ui.MUTED));
+			} else {
+				line = Component.translatable(ClientState.state == 3 ? "local_partner.pause.respawning" : "local_partner.pause.waiting");
+			}
 			color = ClientState.state == 1 ? Ui.TEXT : Ui.MUTED;
 		}
 		List<net.minecraft.util.FormattedCharSequence> lines = font.split(line, w - 30);
@@ -99,7 +113,12 @@ public final class PartnerHud {
 		int x = MARGIN_X, y = Math.round(shownBottom) - h; // grows upward when the text wraps
 		Ui.frame(g, toast != null ? "toast" : "hud", x, y, w, h);
 		Ui.icon(g, icon, x + 6, y + (h - 12) / 2f, 12);
-		Ui.fitText(g, Component.translatable("local_partner.title"), x + 24, y + 6, w - 30, Ui.withAlpha(Ui.ACCENT, alpha), false);
+		Component title = Component.translatable("local_partner.title");
+		if (toast == null && ClientState.state == 1) {
+			title = Component.empty().append(title).append(Component.literal(" · ").withColor(Ui.MUTED))
+					.append(Component.translatable("partner.local_partner.era." + ClientState.era).withColor(Ui.HELP));
+		}
+		Ui.fitText(g, title, x + 24, y + 6, w - 30, Ui.withAlpha(Ui.ACCENT, alpha), false);
 		int ty = y + 17;
 		for (var l : lines) {
 			g.text(font, l, x + 24, ty, Ui.withAlpha(color, alpha), false);

@@ -31,8 +31,8 @@ public final class PartnerChat {
 	public static final int FOLLOW = 0x92F0BD, WOOD = 0xF2BB84, ORE = 0xA2DFED, GUARD = 0xF4A594, PATROL = 0xC2C8FF, FREE = 0xE0EABA;
 
 	private static final Set<String> ALERT = Set.of("retreat", "escaped_fire", "escaped_void", "fight", "fight_boss", "recovering", "starving", "full");
-	private static final Set<String> HELP = Set.of("gave_food", "recovered", "brought", "gave_all", "thanks", "owner_respawned", "fix_food", "fix_tools");
-	private static final Set<String> GOOD = Set.of("hello", "back", "back_from_death", "crafted", "done_wood", "done_ore", "table_placed",
+	private static final Set<String> HELP = Set.of("stalled", "auto_switch", "plan", "gave_food", "recovered", "brought", "gave_all", "thanks", "owner_respawned", "fix_food", "fix_tools");
+	private static final Set<String> GOOD = Set.of("ore_found", "ore_mined", "tree_done", "hunt_done", "smelt_done", "era_up", "table_packed", "good_morning", "hello", "back", "back_from_death", "crafted", "done_wood", "done_ore", "table_placed",
 			"order_follow", "order_wood", "order_ore", "order_guard", "order_patrol", "order_free", "order_give");
 
 	public static Tone toneOf(String key) {

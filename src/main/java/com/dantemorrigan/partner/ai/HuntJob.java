@@ -28,6 +28,11 @@ public final class HuntJob implements Job {
 	}
 
 	@Override
+	public int result(PartnerBrain brain) {
+		return Gear.foodPoints(brain.p.backpack()) + rawPoints(brain.p);
+	}
+
+	@Override
 	public String activity() {
 		return "hunt";
 	}
@@ -35,7 +40,12 @@ public final class HuntJob implements Job {
 	@Override
 	public Status tick(PartnerBrain brain, ServerLevel level) {
 		PartnerEntity p = brain.p;
-		if (Gear.foodPoints(p.backpack()) + rawPoints(p) >= wantedPoints) return Status.DONE;
+		int points = Gear.foodPoints(p.backpack()) + rawPoints(p);
+		brain.detail = points + "/" + wantedPoints;
+		if (points >= wantedPoints) {
+			brain.report("hunt_done", points);
+			return Status.DONE;
+		}
 		if (++ticks > 20 * 60 * 3) return Status.FAILED;
 		if (cooldown > 0) cooldown--;
 		if (collect > 0) {
@@ -51,7 +61,11 @@ public final class HuntJob implements Job {
 			}
 			if (ticks % 40 != 1) return Status.RUNNING;
 			prey = findPrey(level, p);
-			if (prey == null && ++searches > 4) return Status.FAILED;
+			if (prey != null) brain.report("hunt_target", prey.getType().getDescription());
+			if (prey == null && ++searches > 4) {
+				brain.report("hunt_none");
+				return Status.FAILED;
+			}
 			return Status.RUNNING;
 		}
 		Gear.holdWeapon(p);

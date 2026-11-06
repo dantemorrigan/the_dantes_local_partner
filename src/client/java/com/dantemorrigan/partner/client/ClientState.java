@@ -13,6 +13,8 @@ public final class ClientState {
 	public static int state;
 	public static String order = "";
 	public static String activity = "";
+	public static String detail = "";
+	public static int era;
 	public static float health;
 	public static int food;
 	public static boolean modOnServer;
@@ -29,6 +31,8 @@ public final class ClientState {
 			state = s.state();
 			order = s.order();
 			activity = s.activity();
+			detail = s.detail();
+			era = s.era();
 			health = s.health();
 			food = s.food();
 		});
