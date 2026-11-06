@@ -73,9 +73,19 @@ public final class AutoJob implements Job {
 		return false;
 	}
 
+	/** True when the plan has nothing left to work on right now (same checks as {@link #choose}, without starting). */
+	static boolean nothingToDo(PartnerBrain brain) {
+		AutoJob probe = new AutoJob();
+		probe.dryRun = true;
+		return !probe.choose(brain);
+	}
+
+	private boolean dryRun;
+
 	private boolean start(PartnerBrain brain, String key, Job job) {
 		Integer until = brain.autoBlocked.get(key);
 		if (until != null && until > brain.p.tickCount) return false;
+		if (dryRun) return true;
 		step = job;
 		stepKey = key;
 		return true;

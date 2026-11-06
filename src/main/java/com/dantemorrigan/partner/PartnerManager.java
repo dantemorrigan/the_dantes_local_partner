@@ -135,9 +135,24 @@ public final class PartnerManager {
 			say(owner, rec == null ? "none" : rec.contains("respawn") ? "dead_wait" : "waiting");
 			return;
 		}
-		if ("inventory".equals(order)) {
-			partner.openInventory(owner);
-			return;
+		switch (order) {
+			case "inventory" -> {
+				partner.openInventory(owner);
+				return;
+			}
+			case "status" -> {
+				partner.brain().reportStatus(owner);
+				return;
+			}
+			case "later" -> {
+				partner.brain().initiative.later();
+				return;
+			}
+			case "quiet" -> {
+				partner.brain().initiative.quiet();
+				return;
+			}
+			default -> {}
 		}
 		PartnerOrder o = PartnerOrder.byId(order);
 		if (o != null) partner.setOrder(o, owner);
@@ -168,7 +183,7 @@ public final class PartnerManager {
 		put(ownerId, rec);
 		LIVE.remove(ownerId);
 		if (owner != null) {
-			owner.sendSystemMessage(PartnerEntity.chat(partner, Component.translatable("partner.local_partner.died", RESPAWN_TICKS / 20)));
+			owner.sendSystemMessage(PartnerChat.line(partner, PartnerChat.Tone.ALERT, Component.translatable("partner.local_partner.died", RESPAWN_TICKS / 20)));
 			sendStatus(owner);
 		}
 	}
@@ -399,7 +414,8 @@ public final class PartnerManager {
 	}
 
 	private static void say(ServerPlayer owner, String key) {
-		owner.sendSystemMessage(Component.translatable("partner.local_partner.system." + key));
+		owner.sendSystemMessage(PartnerChat.line(Component.translatable("local_partner.title"), PartnerChat.Tone.INFO,
+				Component.translatable("partner.local_partner.system." + key)));
 		owner.level().playSound(null, owner.blockPosition(), SoundEvents.UI_BUTTON_CLICK.value(), SoundSource.PLAYERS, 0.3f, 1.2f);
 	}
 

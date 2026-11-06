@@ -54,6 +54,8 @@ public final class PartnerBrain {
 	public final PartnerEntity p;
 	public final BlockBreaker breaker = new BlockBreaker();
 	public final Smelter smelter = new Smelter();
+	public final Parkour parkour = new Parkour();
+	public final Initiative initiative = new Initiative(this);
 	private final Map<Integer, Integer> ignoredTargets = new HashMap<>();
 	public final Set<BlockPos> badBlocks = new HashSet<>();
 	/** Free-mode steps that failed recently (step key → tick when it may be tried again). */
@@ -65,6 +67,11 @@ public final class PartnerBrain {
 	private int recoverTicks;
 
 	private @Nullable Job job;
+	/** The current job was started by the partner itself (self-development while following), not by an order. */
+	private boolean selfJob;
+	private @Nullable Vec3 selfAnchor;
+	private Vec3 calmAnchor = Vec3.ZERO;
+	private int calmTicks;
 	private @Nullable LivingEntity target;
 	private int targetTicks, unreachableTicks, attackCooldown, retreat, repath;
 	private int stuckTicks, teleportCooldown, giveFoodCooldown, careCooldown, chatterCooldown;
@@ -167,12 +174,41 @@ public final class PartnerBrain {
 			return;
 		}
 		if (survive(level, owner)) return;
+		if (parkour.tickAir(p)) return; // mid-jump: let it land
 		if (recover(level, owner)) return;
+		trackCalm(owner);
 		if (stayTogether(level, owner)) return;
 		if (protect(level, owner)) return;
 		if (care(level, owner)) return;
 		lightTheWay(level, owner);
+		if (p.tickCount % 20 == 0) {
+			Job own = initiative.think(level, owner, job != null && !selfJob);
+			if (own != null && (job == null || selfJob)) {
+				stopJob(level);
+				job = own;
+				selfJob = true;
+				selfAnchor = owner.position();
+			}
+		}
 		doOrder(level, owner);
+	}
+
+	/** The owner has been staying around one spot (building, mining, crafting) for a while. */
+	private void trackCalm(ServerPlayer owner) {
+		if (p.tickCount % 20 != 0) return;
+		if (owner.position().distanceToSqr(calmAnchor) > 8 * 8) {
+			calmAnchor = owner.position();
+			calmTicks = 0;
+		} else calmTicks += 20;
+	}
+
+	public boolean inFight() {
+		return target != null && target.isAlive();
+	}
+
+	/** Everything the free-mode plan could do is done (best gear it can make, food stocked). */
+	public boolean nothingToImprove() {
+		return AutoJob.nothingToDo(this);
 	}
 
 	// ------------------------------------------------------------------ 1. survive
@@ -531,6 +567,15 @@ public final class PartnerBrain {
 
 	private void doOrder(ServerLevel level, ServerPlayer owner) {
 		PartnerOrder order = p.order();
+		// Self-development while following: drop it as soon as the owner moves on.
+		if (job != null && selfJob && order != PartnerOrder.FREE) {
+			boolean ownerLeft = selfAnchor != null && owner.position().distanceToSqr(selfAnchor) > 20 * 20;
+			boolean tooFar = horizontalDistSqr(p.position(), owner.position()) > 32 * 32;
+			if (ownerLeft || tooFar || order != PartnerOrder.FOLLOW && !(job instanceof HuntJob)) {
+				stopJob(level);
+				say("coming");
+			}
+		}
 		if (job != null) {
 			Job.Status status = job.tick(this, level);
 			if (status == Job.Status.RUNNING) {
@@ -538,7 +583,9 @@ public final class PartnerBrain {
 				return;
 			}
 			Job finished = job;
+			boolean wasSelf = selfJob;
 			stopJob(level);
+			if (wasSelf && order == PartnerOrder.FOLLOW) return;
 			if (order.oneShot() || order == PartnerOrder.WOOD || order == PartnerOrder.ORE) {
 				if (status == Job.Status.DONE && !(finished instanceof GiveJob)) {
 					job = new GiveJob(true); // bring the haul back
@@ -555,7 +602,16 @@ public final class PartnerBrain {
 			case GUARD -> follow(owner, 1.5, 3.0, "guard");
 			case FREE -> job = new AutoJob();
 			case WOOD, ORE, GIVE -> p.setOrderQuiet(PartnerOrder.FOLLOW);
-			default -> follow(owner, 2.5, 5.0, "follow");
+			default -> {
+				// Following and the owner is busy in one place: use the time to grow (gear, food, ore).
+				if (calmTicks >= 20 * 8 && !inFight() && p.tickCount % 20 == 0 && !AutoJob.nothingToDo(this)) {
+					job = new AutoJob();
+					selfJob = true;
+					selfAnchor = owner.position();
+					return;
+				}
+				follow(owner, 2.5, 5.0, "follow");
+			}
 		}
 	}
 
@@ -580,6 +636,15 @@ public final class PartnerBrain {
 
 	private void walkTo(Entity e, double speed) {
 		if (p.tickCount % 10 == 0 || p.getNavigation().isDone()) p.getNavigation().moveTo(e, speed);
+		jumpIfBlocked(e.position());
+	}
+
+	/** When the path ends short of the target (a gap), try a running jump across like a player. */
+	public void jumpIfBlocked(Vec3 target) {
+		var nav = p.getNavigation();
+		var path = nav.getPath();
+		boolean blocked = path == null ? nav.isDone() : !path.canReach() && (path.isDone() || nav.isDone());
+		if (blocked && p.tickCount % 5 == 0) parkour.tryJump(p, (ServerLevel) p.level(), target);
 	}
 
 	private void idleLook(ServerPlayer owner) {
@@ -604,6 +669,8 @@ public final class PartnerBrain {
 	private void stopJob(ServerLevel level) {
 		if (job != null) job.stop(this, level);
 		job = null;
+		selfJob = false;
+		parkour.cancel();
 		breaker.cancel(level, p);
 		p.getNavigation().stop();
 	}
@@ -638,6 +705,7 @@ public final class PartnerBrain {
 			var path = p.getNavigation().createPath(pos, 1);
 			if (path != null) p.getNavigation().moveTo(path, PartnerEntity.SPRINT);
 		}
+		jumpIfBlocked(Vec3.atBottomCenterOf(pos));
 		return false;
 	}
 

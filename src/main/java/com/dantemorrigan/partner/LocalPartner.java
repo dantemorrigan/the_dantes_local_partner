@@ -33,6 +33,7 @@ public final class LocalPartner implements ModInitializer {
 		PartnerFx.init();
 		PartnerNetwork.init();
 		PartnerManager.init();
+		PartnerCommand.init();
 		InfinityCompat.init();
 		LOG.info("Local Partner ready{}", InfinityCompat.LOADED ? " (The Dante's Infinity detected)" : "");
 	}

@@ -205,8 +205,50 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 		}
 	}
 
+	/** A drop deeper than this is never walked off on purpose (falls of up to 3 blocks do no damage). */
+	private static final double SAFE_DROP = 3.4;
+
+	/**
+	 * Caution at edges, the way a sneaking player moves: walking (or being nudged) toward a drop that would hurt is
+	 * cut short right at the edge. Jumps (moving up) are not touched, so parkour jumps still work.
+	 */
+	@Override
+	protected Vec3 maybeBackOffFromEdge(Vec3 delta, net.minecraft.world.entity.MoverType type) {
+		if (delta.y > 0 || type != net.minecraft.world.entity.MoverType.SELF || !this.onGround() || brain.parkour.airborne()) return delta;
+		double dx = delta.x, dz = delta.z, step = 0.05;
+		while (dx != 0 && canFallAtLeast(dx, 0, SAFE_DROP)) dx = Math.abs(dx) <= step ? 0 : dx - Math.signum(dx) * step;
+		while (dz != 0 && canFallAtLeast(0, dz, SAFE_DROP)) dz = Math.abs(dz) <= step ? 0 : dz - Math.signum(dz) * step;
+		while (dx != 0 && dz != 0 && canFallAtLeast(dx, dz, SAFE_DROP)) {
+			dx = Math.abs(dx) <= step ? 0 : dx - Math.signum(dx) * step;
+			dz = Math.abs(dz) <= step ? 0 : dz - Math.signum(dz) * step;
+		}
+		return new Vec3(dx, delta.y, dz);
+	}
+
+	private boolean canFallAtLeast(double dx, double dz, double height) {
+		var box = this.getBoundingBox();
+		var below = new net.minecraft.world.phys.AABB(box.minX + 1e-7 + dx, box.minY - height - 1e-7, box.minZ + 1e-7 + dz,
+				box.maxX - 1e-7 + dx, box.minY, box.maxZ - 1e-7 + dz);
+		if (!this.level().noCollision(this, below)) return false;
+		return true;
+	}
+
+	/** Crouches while standing at a dangerous edge (a long drop or lava below), like a careful player. */
+	private void updateCaution() {
+		boolean edge = false;
+		if (this.onGround() && !this.isSprinting()) {
+			double r = 0.45;
+			edge = canFallAtLeast(r, 0, SAFE_DROP) || canFallAtLeast(-r, 0, SAFE_DROP) || canFallAtLeast(0, r, SAFE_DROP) || canFallAtLeast(0, -r, SAFE_DROP);
+		}
+		if (edge != this.isShiftKeyDown()) {
+			this.setShiftKeyDown(edge);
+			this.setPose(edge ? net.minecraft.world.entity.Pose.CROUCHING : net.minecraft.world.entity.Pose.STANDING);
+		}
+	}
+
 	@Override
 	protected void customServerAiStep(ServerLevel level) {
+		if (this.tickCount % 2 == 0) updateCaution();
 		super.customServerAiStep(level);
 		tickHunger(level);
 		pickUpItems(level);
@@ -452,13 +494,13 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 	// ------------------------------------------------------------------ chat & effects
 
 	public static Component chat(PartnerEntity partner, Component message) {
-		return Component.translatable("partner.local_partner.chat", partner.getDisplayName(), message);
+		return PartnerChat.line(partner, PartnerChat.Tone.INFO, message);
 	}
 
-	/** A short line in the owner's chat. */
+	/** A short line in the owner's chat, styled by its kind (see {@link PartnerChat}). */
 	public void speak(String key, Object... args) {
 		ServerPlayer p = getOwnerPlayer();
-		if (p != null) p.sendSystemMessage(chat(this, Component.translatable("partner.local_partner.say." + key, args)));
+		if (p != null) p.sendSystemMessage(PartnerChat.line(this, PartnerChat.toneOf(key), Component.translatable("partner.local_partner.say." + key, args)));
 	}
 
 	/** Appearance next to the owner (summon / back after waiting or death). */
