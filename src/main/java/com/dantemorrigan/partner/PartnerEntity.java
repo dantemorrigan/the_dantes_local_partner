@@ -1,0 +1,535 @@
+package com.dantemorrigan.partner;
+
+import com.dantemorrigan.partner.ai.Gear;
+import com.dantemorrigan.partner.ai.PartnerBrain;
+import com.dantemorrigan.partner.compat.InfinityCompat;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.UUIDUtil;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.syncher.EntityDataAccessor;
+import net.minecraft.network.syncher.EntityDataSerializers;
+import net.minecraft.network.syncher.SynchedEntityData;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.SimpleContainer;
+import net.minecraft.world.SimpleMenuProvider;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.EntityReference;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.OwnableEntity;
+import net.minecraft.world.entity.PathfinderMob;
+import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.ai.goal.FloatGoal;
+import net.minecraft.world.entity.ai.goal.OpenDoorGoal;
+import net.minecraft.world.entity.ai.navigation.GroundPathNavigation;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.food.FoodProperties;
+import net.minecraft.world.inventory.ChestMenu;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.gamerules.GameRules;
+import net.minecraft.world.level.pathfinder.PathType;
+import net.minecraft.world.level.storage.ValueInput;
+import net.minecraft.world.level.storage.ValueOutput;
+import net.minecraft.world.phys.Vec3;
+import org.jspecify.annotations.Nullable;
+
+import java.util.UUID;
+
+/**
+ * The partner's body: player-like stats (20 health, 20 food, fist damage 1, walking and sprinting at player speed),
+ * a 27-slot backpack plus armor and hands, hunger and natural regeneration, and the rules that keep it friendly.
+ * All decisions live in {@link PartnerBrain}.
+ */
+public class PartnerEntity extends PathfinderMob implements OwnableEntity {
+	private static final EntityDataAccessor<Integer> DATA_SKIN = SynchedEntityData.defineId(PartnerEntity.class, EntityDataSerializers.INT);
+	private static final EntityDataAccessor<String> DATA_ACTIVITY = SynchedEntityData.defineId(PartnerEntity.class, EntityDataSerializers.STRING);
+	public static final String[] SKINS = {"steve", "alex", "ari", "efe", "kai", "makena", "noor", "sunny", "zuri"};
+
+	/** Speeds as navigation modifiers on top of {@link #BASE_SPEED}: mob movement scales with speed squared. */
+	public static final double BASE_SPEED = 0.32, WALK = 1.0, SPRINT = 1.13, CATCH_UP = 1.25;
+
+	private final SimpleContainer backpack = new SimpleContainer(27);
+	private final PartnerBrain brain = new PartnerBrain(this);
+	private @Nullable UUID owner;
+	private PartnerOrder order = PartnerOrder.FOLLOW;
+	private @Nullable BlockPos anchor;
+	private int food = 20;
+	private float saturation = 5f, exhaustion;
+	private int foodTick, eating;
+	private float lastMoveDist;
+	private ItemStack eatingStack = ItemStack.EMPTY;
+
+	public PartnerEntity(EntityType<? extends PartnerEntity> type, Level level) {
+		super(type, level);
+		this.setPersistenceRequired();
+		this.setCanPickUpLoot(false); // we pick up into the backpack ourselves
+		if (this.getNavigation() instanceof GroundPathNavigation nav) {
+			nav.setCanOpenDoors(true);
+			nav.setCanFloat(true);
+		}
+		this.setPathfindingMalus(PathType.WATER, 4.0f);
+		this.setPathfindingMalus(PathType.FIRE_IN_NEIGHBOR, 16.0f);
+		this.setPathfindingMalus(PathType.FIRE, -1.0f);
+		this.setPathfindingMalus(PathType.LAVA, -1.0f);
+	}
+
+	public static AttributeSupplier.Builder createAttributes() {
+		return Mob.createMobAttributes()
+				.add(Attributes.MAX_HEALTH, 20.0)
+				.add(Attributes.MOVEMENT_SPEED, BASE_SPEED)
+				.add(Attributes.ATTACK_DAMAGE, 1.0)
+				.add(Attributes.ATTACK_SPEED, 4.0)
+				.add(Attributes.FOLLOW_RANGE, 32.0)
+				.add(Attributes.STEP_HEIGHT, 0.6)
+				.add(Attributes.ENTITY_INTERACTION_RANGE, 3.0)
+				.add(Attributes.BLOCK_INTERACTION_RANGE, 4.5);
+	}
+
+	@Override
+	protected void defineSynchedData(SynchedEntityData.Builder data) {
+		super.defineSynchedData(data);
+		data.define(DATA_SKIN, 0);
+		data.define(DATA_ACTIVITY, "");
+	}
+
+	@Override
+	protected void registerGoals() {
+		this.goalSelector.addGoal(0, new FloatGoal(this));
+		this.goalSelector.addGoal(1, new OpenDoorGoal(this, true));
+	}
+
+	/** First summon: owner, name, a skin of its own and a few starting snacks like a fresh player has none. */
+	public void setupNew(ServerPlayer player) {
+		this.owner = player.getUUID();
+		this.setCustomName(Component.translatable("entity.local_partner.partner.name"));
+		this.setCustomNameVisible(true);
+		this.entityData.set(DATA_SKIN, this.random.nextInt(SKINS.length));
+		this.order = PartnerOrder.FOLLOW;
+	}
+
+	// ------------------------------------------------------------------ ownership
+
+	@Override
+	public @Nullable EntityReference<LivingEntity> getOwnerReference() {
+		return owner == null ? null : EntityReference.of(owner);
+	}
+
+	public @Nullable UUID getOwnerUUID() {
+		return owner;
+	}
+
+	public @Nullable ServerPlayer getOwnerPlayer() {
+		if (owner == null || !(this.level() instanceof ServerLevel level)) return null;
+		return level.getServer().getPlayerList().getPlayer(owner);
+	}
+
+	public boolean isOwner(Player player) {
+		return owner != null && owner.equals(player.getUUID());
+	}
+
+	// ------------------------------------------------------------------ state
+
+	public PartnerOrder order() {
+		return order;
+	}
+
+	public @Nullable BlockPos anchor() {
+		return anchor;
+	}
+
+	public void setOrder(PartnerOrder newOrder, ServerPlayer by) {
+		this.order = newOrder;
+		this.anchor = newOrder.anchored() ? by.blockPosition() : null;
+		brain.onOrder(newOrder, by);
+	}
+
+	/** Brain-side order change (one-shots finishing, owner moving away from an anchor...). */
+	public void setOrderQuiet(PartnerOrder newOrder) {
+		this.order = newOrder;
+		if (!newOrder.anchored()) this.anchor = null;
+	}
+
+	public String activity() {
+		return this.entityData.get(DATA_ACTIVITY);
+	}
+
+	public void setActivity(String key) {
+		if (!key.equals(activity())) this.entityData.set(DATA_ACTIVITY, key);
+	}
+
+	public int skin() {
+		return Math.floorMod(this.entityData.get(DATA_SKIN), SKINS.length);
+	}
+
+	public SimpleContainer backpack() {
+		return backpack;
+	}
+
+	public PartnerBrain brain() {
+		return brain;
+	}
+
+	public int foodLevel() {
+		return food;
+	}
+
+	public boolean isEating() {
+		return eating > 0;
+	}
+
+	public void causeExhaustion(float amount) {
+		exhaustion += amount;
+	}
+
+	// ------------------------------------------------------------------ ticking
+
+	@Override
+	public void tick() {
+		super.tick();
+		if (this.level().isClientSide()) return;
+		if (this.tickCount % 20 == 1 && !PartnerManager.isCurrent(this)) {
+			// A stale copy (an older save that came back with a chunk): the real partner lives elsewhere.
+			this.discard();
+		}
+	}
+
+	@Override
+	protected void customServerAiStep(ServerLevel level) {
+		super.customServerAiStep(level);
+		tickHunger(level);
+		pickUpItems(level);
+		brain.tick(level);
+	}
+
+	private void tickHunger(ServerLevel level) {
+		if (eating > 0) {
+			eating--;
+			if (eating % 4 == 0) this.playSound(SoundEvents.GENERIC_EAT.value(), 0.5f, 0.9f + this.random.nextFloat() * 0.2f);
+			if (eating == 0) finishEating();
+		}
+		// Hunger works like the player's: exhaustion from moving and fighting, then saturation, then food.
+		if (this.moveDist != lastMoveDist) {
+			exhaustion += 0.01f * Math.min(1f, this.moveDist - lastMoveDist);
+			lastMoveDist = this.moveDist;
+		}
+		if (exhaustion >= 4f) {
+			exhaustion -= 4f;
+			if (saturation > 0) saturation = Math.max(0, saturation - 1);
+			else food = Math.max(0, food - 1);
+		}
+		if (++foodTick >= 80) {
+			foodTick = 0;
+			if (food >= 18 && this.getHealth() < this.getMaxHealth()) {
+				this.heal(1f);
+				exhaustion += 3f;
+			} else if (food <= 0 && this.getHealth() > 1f) {
+				this.hurtServer(level, this.damageSources().starve(), 1f);
+			}
+		}
+		if (eating == 0 && wantsToEat()) startEating();
+	}
+
+	private boolean wantsToEat() {
+		return food <= 14 || (food < 20 && this.getHealth() < this.getMaxHealth() - 6);
+	}
+
+	private void startEating() {
+		int slot = Gear.bestFoodSlot(backpack, 20 - food);
+		if (slot < 0) return;
+		eatingStack = backpack.removeItem(slot, 1);
+		this.setItemSlot(EquipmentSlot.OFFHAND, eatingStack.copy());
+		eating = 32;
+	}
+
+	private void finishEating() {
+		FoodProperties props = eatingStack.get(DataComponents.FOOD);
+		if (props != null) {
+			food = Math.min(20, food + props.nutrition());
+			saturation = Math.min(food, saturation + props.nutrition() * props.saturation() * 2f);
+		}
+		if (eatingStack.is(Items.GOLDEN_APPLE) || eatingStack.is(Items.ENCHANTED_GOLDEN_APPLE)) this.heal(4f);
+		this.playSound(SoundEvents.PLAYER_BURP, 0.5f, 1f);
+		eatingStack = ItemStack.EMPTY;
+		this.setItemSlot(EquipmentSlot.OFFHAND, ItemStack.EMPTY);
+	}
+
+	/** Items lying around get collected into the backpack, like a player walking over them. */
+	private void pickUpItems(ServerLevel level) {
+		if (this.tickCount % 4 != 0 || this.isDeadOrDying()) return;
+		for (ItemEntity item : level.getEntitiesOfClass(ItemEntity.class, this.getBoundingBox().inflate(1.2, 0.6, 1.2))) {
+			if (item.isRemoved() || item.hasPickUpDelay() || item.getOwner() == this) continue;
+			ItemStack stack = item.getItem();
+			if (InfinityCompat.isProtectedItem(stack) || !brain.wantsItem(stack)) continue;
+			int before = stack.getCount();
+			ItemStack rest = backpack.addItem(stack.copy());
+			int taken = before - rest.getCount();
+			if (taken <= 0) continue;
+			this.take(item, taken);
+			stack.shrink(taken);
+			if (stack.isEmpty()) item.discard();
+			else item.setItem(stack);
+			brain.onPickedUp();
+		}
+	}
+
+	// ------------------------------------------------------------------ owner care, transfer
+
+	/** Gives the stack to the player (into their inventory, the rest at their feet). */
+	public void giveTo(Player player, ItemStack stack) {
+		if (stack.isEmpty()) return;
+		int count = stack.getCount();
+		if (!player.getInventory().add(stack) || !stack.isEmpty()) {
+			ItemEntity drop = player.drop(stack, false);
+			if (drop != null) drop.setNoPickUpDelay();
+		}
+		this.swing(InteractionHand.MAIN_HAND);
+		this.level().playSound(null, player.blockPosition(), SoundEvents.ITEM_PICKUP, SoundSource.PLAYERS, 0.3f, 1.4f);
+		if (count > 0) causeExhaustion(0f);
+	}
+
+	/** Hands over the backpack (and with {@code gearToo}, everything it wears and holds). */
+	public void handEverythingTo(Player player, boolean gearToo) {
+		for (int i = 0; i < backpack.getContainerSize(); i++) {
+			ItemStack s = backpack.getItem(i);
+			if (s.isEmpty()) continue;
+			if (!gearToo && brain.keepsForItself(s, i)) continue;
+			giveTo(player, backpack.removeItemNoUpdate(i));
+		}
+		if (gearToo) {
+			for (EquipmentSlot slot : EquipmentSlot.values()) {
+				if (slot.getType() == EquipmentSlot.Type.ANIMAL_ARMOR || slot == EquipmentSlot.SADDLE) continue;
+				ItemStack s = this.getItemBySlot(slot);
+				if (s.isEmpty() || slot == EquipmentSlot.OFFHAND && eating > 0) continue;
+				this.setItemSlot(slot, ItemStack.EMPTY);
+				giveTo(player, s);
+			}
+		}
+		backpack.setChanged();
+	}
+
+	public void openInventory(ServerPlayer player) {
+		player.openMenu(new SimpleMenuProvider((id, inv, p) -> ChestMenu.threeRows(id, inv, backpack), this.getDisplayName()));
+		speak("inventory");
+	}
+
+	@Override
+	protected InteractionResult mobInteract(Player player, InteractionHand hand) {
+		if (!(player instanceof ServerPlayer sp)) return InteractionResult.SUCCESS;
+		if (!isOwner(player)) {
+			sp.sendSystemMessage(chat(this, Component.translatable("partner.local_partner.not_yours")));
+			return InteractionResult.SUCCESS;
+		}
+		ItemStack held = player.getItemInHand(hand);
+		if (player.isShiftKeyDown()) {
+			openInventory(sp);
+		} else if (!held.isEmpty() && !InfinityCompat.isProtectedItem(held) && !held.is(Items.NAME_TAG)) {
+			// Hand an item over: it goes straight into the backpack (gear gets equipped on the next check).
+			ItemStack rest = backpack.addItem(held.copy());
+			int given = held.getCount() - rest.getCount();
+			if (given > 0) {
+				held.shrink(given);
+				speak("thanks");
+				brain.onPickedUp();
+			} else speak("full");
+		} else if (held.is(Items.NAME_TAG)) {
+			return super.mobInteract(player, hand);
+		} else {
+			brain.reportStatus(sp);
+		}
+		return InteractionResult.SUCCESS;
+	}
+
+	// ------------------------------------------------------------------ damage / death
+
+	@Override
+	public boolean hurtServer(ServerLevel level, DamageSource source, float damage) {
+		// Co-op: players (and their tamed pets / partners) never hurt the partner.
+		if (source.getEntity() instanceof Player || source.getEntity() instanceof PartnerEntity
+				|| source.getEntity() instanceof OwnableEntity o && o.getOwnerReference() != null && owner != null
+				&& owner.equals(o.getOwnerReference().getUUID())) return false;
+		boolean hurt = super.hurtServer(level, source, damage);
+		if (hurt) {
+			exhaustion += 0.1f;
+			brain.onHurt(source);
+		}
+		return hurt;
+	}
+
+	@Override
+	public boolean canBeLeashed() {
+		return false;
+	}
+
+	@Override
+	public void die(DamageSource source) {
+		boolean wasAlive = !this.isRemoved() && !this.dead;
+		super.die(source);
+		if (wasAlive && this.level() instanceof ServerLevel) PartnerManager.onPartnerDeath(this);
+	}
+
+	@Override
+	protected void dropEquipment(ServerLevel level) {
+		if (level.getGameRules().get(GameRules.KEEP_INVENTORY)) return; // keeps everything, like a player
+		for (ItemStack s : backpack.removeAllItems()) this.spawnAtLocation(level, s);
+		for (EquipmentSlot slot : EquipmentSlot.values()) {
+			if (slot.getType() == EquipmentSlot.Type.ANIMAL_ARMOR || slot == EquipmentSlot.SADDLE) continue;
+			ItemStack s = this.getItemBySlot(slot);
+			if (!s.isEmpty()) {
+				this.spawnAtLocation(level, s);
+				this.setItemSlot(slot, ItemStack.EMPTY);
+			}
+		}
+	}
+
+	@Override
+	protected void dropCustomDeathLoot(ServerLevel level, DamageSource source, boolean killedByPlayer) {
+		// Everything it had is dropped in dropEquipment.
+	}
+
+	/** Back after a death or after waiting outside: heal up, hunger reset after death. */
+	public void revive(boolean afterDeath) {
+		this.dead = false;
+		this.deathTime = 0;
+		this.hurtTime = 0;
+		this.setHealth(afterDeath ? this.getMaxHealth() : Math.max(this.getHealth(), 1f));
+		this.clearFire();
+		this.removeAllEffects();
+		this.resetFallDistance();
+		this.setDeltaMovement(Vec3.ZERO);
+		if (afterDeath) {
+			food = 20;
+			saturation = 5f;
+			exhaustion = 0;
+			if (order.anchored() || order.oneShot()) order = PartnerOrder.FOLLOW;
+		}
+		eating = 0;
+		eatingStack = ItemStack.EMPTY;
+	}
+
+	public void onOwnerRespawned(ServerPlayer player) {
+		PartnerEntity moved = PartnerManager.teleportToOwner(this, player);
+		if (moved != null) PartnerFx.recall(moved);
+		speak("owner_respawned");
+	}
+
+	public void followAcrossLevels(ServerPlayer player) {
+		if (order.anchored()) setOrderQuiet(PartnerOrder.FOLLOW);
+		brain.reset();
+		PartnerEntity moved = PartnerManager.teleportToOwner(this, player);
+		if (moved != null) {
+			PartnerFx.recall(moved);
+			PartnerFx.toast(moved, "recall");
+		}
+	}
+
+	@Override
+	public boolean removeWhenFarAway(double distance) {
+		return false;
+	}
+
+	@Override
+	public boolean canUsePortal(boolean allowPassengers) {
+		return false; // it follows the owner through the manager instead of walking into portals alone
+	}
+
+	// ------------------------------------------------------------------ chat & effects
+
+	public static Component chat(PartnerEntity partner, Component message) {
+		return Component.translatable("partner.local_partner.chat", partner.getDisplayName(), message);
+	}
+
+	/** A short line in the owner's chat. */
+	public void speak(String key, Object... args) {
+		ServerPlayer p = getOwnerPlayer();
+		if (p != null) p.sendSystemMessage(chat(this, Component.translatable("partner.local_partner.say." + key, args)));
+	}
+
+	/** Appearance next to the owner (summon / back after waiting or death). */
+	public void arrivalFx() {
+		PartnerFx.summon(this);
+		this.level().playSound(null, this.blockPosition(), SoundEvents.AMETHYST_BLOCK_CHIME, SoundSource.NEUTRAL, 0.8f, 1.3f);
+	}
+
+	public void leaveFx() {
+		PartnerFx.dismiss(this);
+		this.level().playSound(null, this.blockPosition(), SoundEvents.AMETHYST_BLOCK_CHIME, SoundSource.NEUTRAL, 0.6f, 0.8f);
+	}
+
+	// ------------------------------------------------------------------ teleport spot
+
+	/** A safe standing spot 2-3 blocks around {@code center}, or the center itself if nothing better. */
+	public static Vec3 safeSpotNear(ServerLevel level, BlockPos center, PartnerEntity partner) {
+		BlockPos best = null;
+		for (int r = 2; r <= 4 && best == null; r++) {
+			for (int dx = -r; dx <= r && best == null; dx++) {
+				for (int dz = -r; dz <= r && best == null; dz++) {
+					if (Math.max(Math.abs(dx), Math.abs(dz)) != r) continue;
+					for (int dy = 2; dy >= -3; dy--) {
+						BlockPos p = center.offset(dx, dy, dz);
+						if (isSafeStand(level, p, partner)) {
+							best = p;
+							break;
+						}
+					}
+				}
+			}
+		}
+		BlockPos p = best != null ? best : center;
+		return new Vec3(p.getX() + 0.5, p.getY(), p.getZ() + 0.5);
+	}
+
+	public static boolean isSafeStand(ServerLevel level, BlockPos pos, PartnerEntity partner) {
+		if (!level.getWorldBorder().isWithinBounds(pos) || !level.hasChunkAt(pos)) return false;
+		var below = level.getBlockState(pos.below());
+		if (!below.isFaceSturdy(level, pos.below(), net.minecraft.core.Direction.UP)) return false;
+		if (!below.getFluidState().isEmpty() || below.is(net.minecraft.world.level.block.Blocks.MAGMA_BLOCK)) return false;
+		if (!level.getFluidState(pos).isEmpty() || !level.getFluidState(pos.above()).isEmpty()) return false;
+		var box = partner.getType().getDimensions().makeBoundingBox(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5);
+		return level.noCollision(partner, box);
+	}
+
+	// ------------------------------------------------------------------ save
+
+	@Override
+	protected void addAdditionalSaveData(ValueOutput output) {
+		super.addAdditionalSaveData(output);
+		if (owner != null) output.store("Owner", UUIDUtil.CODEC, owner);
+		output.putString("Order", order.id);
+		if (anchor != null) output.store("Anchor", BlockPos.CODEC, anchor);
+		output.putInt("Skin", this.entityData.get(DATA_SKIN));
+		output.putInt("Food", food);
+		output.putFloat("Saturation", saturation);
+		output.putFloat("Exhaustion", exhaustion);
+		if (!eatingStack.isEmpty()) output.store("Eating", ItemStack.CODEC, eatingStack); // never lose a half-eaten snack
+		backpack.storeAsItemList(output.list("Backpack", ItemStack.CODEC));
+		brain.save(output);
+	}
+
+	@Override
+	protected void readAdditionalSaveData(ValueInput input) {
+		super.readAdditionalSaveData(input);
+		owner = input.read("Owner", UUIDUtil.CODEC).orElse(null);
+		PartnerOrder o = PartnerOrder.byId(input.getStringOr("Order", "follow"));
+		order = o == null || o.oneShot() ? PartnerOrder.FOLLOW : o;
+		anchor = input.read("Anchor", BlockPos.CODEC).orElse(null);
+		this.entityData.set(DATA_SKIN, input.getIntOr("Skin", 0));
+		food = input.getIntOr("Food", 20);
+		saturation = input.getFloatOr("Saturation", 5f);
+		exhaustion = input.getFloatOr("Exhaustion", 0f);
+		input.list("Backpack", ItemStack.CODEC).ifPresent(backpack::fromItemList);
+		input.read("Eating", ItemStack.CODEC).ifPresent(backpack::addItem);
+		brain.load(input);
+	}
+}

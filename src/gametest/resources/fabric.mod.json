@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "local_partner_gametest",
+  "version": "1.0.0",
+  "name": "Local Partner client tests",
+  "environment": "*",
+  "entrypoints": {
+    "fabric-client-gametest": [
+      "com.dantemorrigan.partner.gametest.PartnerTest"
+    ]
+  },
+  "depends": {
+    "local_partner": "*"
+  }
+}

@@ -1,0 +1,365 @@
+package com.dantemorrigan.partner;
+
+import com.dantemorrigan.partner.compat.InfinityCompat;
+import com.mojang.serialization.Codec;
+import net.fabricmc.fabric.api.attachment.v1.AttachmentRegistry;
+import net.fabricmc.fabric.api.attachment.v1.AttachmentType;
+import net.fabricmc.fabric.api.entity.event.v1.ServerEntityLevelChangeEvents;
+import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.util.ProblemReporter;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntitySpawnReason;
+import net.minecraft.world.level.portal.TeleportTransition;
+import net.minecraft.world.level.storage.TagValueInput;
+import net.minecraft.world.level.storage.TagValueOutput;
+import net.minecraft.world.phys.Vec3;
+import org.jspecify.annotations.Nullable;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ * One partner per player. Keeps track of where it is, and keeps it alive across everything a world can do:
+ * logout/login, dimension changes (it follows, or waits outside scripted dimensions), the owner's death and its own.
+ *
+ * <p>The record for each owner is stored on the Overworld (persistent attachment), so it is saved with the world.
+ * Keys: {@code entity} (UUID of the live partner), {@code stash} (the partner's saved data while it is not in the
+ * world), {@code snapshot} (periodic backup), {@code respawn} (game time of a respawn after death).
+ */
+public final class PartnerManager {
+	private static final AttachmentType<Map<String, CompoundTag>> RECORDS = AttachmentRegistry.<Map<String, CompoundTag>>builder()
+			.persistent(Codec.unboundedMap(Codec.STRING, CompoundTag.CODEC)).buildAndRegister(LocalPartner.id("partners"));
+
+	public static final int RESPAWN_TICKS = 20 * 30;
+	private static final int SNAPSHOT_EVERY = 20 * 30;
+	private static final int LOST_AFTER = 20 * 10;
+
+	private static final Map<UUID, PartnerEntity> LIVE = new HashMap<>();
+	private static final Map<UUID, Integer> MISSING = new HashMap<>();
+	private static Map<String, CompoundTag> records = new HashMap<>();
+	private static MinecraftServer server;
+
+	public static void init() {
+		ServerLifecycleEvents.SERVER_STARTED.register(s -> {
+			server = s;
+			records = new HashMap<>(s.overworld().getAttachedOrElse(RECORDS, Map.of()));
+			LIVE.clear();
+			MISSING.clear();
+		});
+		ServerLifecycleEvents.SERVER_STOPPED.register(s -> { server = null; LIVE.clear(); records = new HashMap<>(); });
+		ServerTickEvents.END_SERVER_TICK.register(PartnerManager::tick);
+		ServerPlayConnectionEvents.DISCONNECT.register((handler, s) -> stash(handler.getPlayer(), false));
+		ServerEntityLevelChangeEvents.AFTER_PLAYER_CHANGE_LEVEL.register((player, from, to) -> ownerChangedLevel(player, to));
+		ServerPlayerEvents.AFTER_RESPAWN.register((oldPlayer, player, alive) -> {
+			PartnerEntity p = find(player);
+			if (p != null && !p.isRemoved()) p.onOwnerRespawned(player);
+		});
+	}
+
+	// ------------------------------------------------------------------ public API (packets)
+
+	public static void summon(ServerPlayer owner) {
+		CompoundTag rec = record(owner);
+		if (rec != null) {
+			say(owner, "already");
+			return;
+		}
+		if (InfinityCompat.partnerWaitsOutside(owner.level().dimension())) {
+			say(owner, "cant_here");
+			return;
+		}
+		ServerLevel level = owner.level();
+		PartnerEntity partner = new PartnerEntity(LocalPartner.PARTNER, level);
+		partner.setupNew(owner);
+		Vec3 spot = PartnerEntity.safeSpotNear(level, owner.blockPosition(), partner);
+		partner.snapTo(spot.x, spot.y, spot.z, owner.getYRot() + 180f, 0f);
+		if (!level.addFreshEntity(partner)) {
+			say(owner, "failed");
+			return;
+		}
+		CompoundTag r = new CompoundTag();
+		r.putString("entity", partner.getUUID().toString());
+		put(owner.getUUID(), r);
+		LIVE.put(owner.getUUID(), partner);
+		partner.arrivalFx();
+		PartnerFx.toast(partner, "summon");
+		partner.speak("hello");
+		sendStatus(owner);
+	}
+
+	public static void dismiss(ServerPlayer owner) {
+		CompoundTag rec = record(owner);
+		if (rec == null) {
+			say(owner, "none");
+			return;
+		}
+		PartnerEntity partner = find(owner);
+		if (partner != null) {
+			partner.speak("bye");
+			partner.handEverythingTo(owner, true);
+			partner.leaveFx();
+			partner.discard();
+			PartnerNetwork.send(owner, new PartnerNetwork.Toast("dismiss"));
+		} else if (rec.contains("stash")) {
+			// Waiting outside / dead: whatever it carried still goes to the owner.
+			PartnerEntity ghost = load(owner.level(), rec.getCompoundOrEmpty("stash"));
+			if (ghost != null) ghost.handEverythingTo(owner, true);
+			say(owner, "dismissed");
+		}
+		LIVE.remove(owner.getUUID());
+		remove(owner.getUUID());
+		sendStatus(owner);
+	}
+
+	public static void command(ServerPlayer owner, String order) {
+		PartnerEntity partner = find(owner);
+		if (partner == null) {
+			CompoundTag rec = record(owner);
+			say(owner, rec == null ? "none" : rec.contains("respawn") ? "dead_wait" : "waiting");
+			return;
+		}
+		if ("inventory".equals(order)) {
+			partner.openInventory(owner);
+			return;
+		}
+		PartnerOrder o = PartnerOrder.byId(order);
+		if (o != null) partner.setOrder(o, owner);
+		sendStatus(owner);
+	}
+
+	// ------------------------------------------------------------------ queries used by the entity
+
+	/** True when this entity is the one the owner's record points to (old copies remove themselves). */
+	public static boolean isCurrent(PartnerEntity partner) {
+		if (server == null || partner.getOwnerUUID() == null) return false;
+		CompoundTag rec = records.get(partner.getOwnerUUID().toString());
+		if (rec == null) return false;
+		boolean current = rec.getStringOr("entity", "").equals(partner.getUUID().toString()) && !rec.contains("stash");
+		if (current) LIVE.put(partner.getOwnerUUID(), partner);
+		return current;
+	}
+
+	public static void onPartnerDeath(PartnerEntity partner) {
+		ServerPlayer owner = partner.getOwnerPlayer();
+		UUID ownerId = partner.getOwnerUUID();
+		if (ownerId == null) return;
+		CompoundTag rec = records.get(ownerId.toString());
+		if (rec == null) return;
+		rec = rec.copy();
+		rec.put("stash", save(partner));
+		rec.putLong("respawn", partner.level().getGameTime() + RESPAWN_TICKS);
+		put(ownerId, rec);
+		LIVE.remove(ownerId);
+		if (owner != null) {
+			owner.sendSystemMessage(PartnerEntity.chat(partner, Component.translatable("partner.local_partner.died", RESPAWN_TICKS / 20)));
+			sendStatus(owner);
+		}
+	}
+
+	// ------------------------------------------------------------------ lifecycle
+
+	private static void tick(MinecraftServer s) {
+		if (records.isEmpty()) return;
+		long time = s.overworld().getGameTime();
+		for (ServerPlayer owner : s.getPlayerList().getPlayers()) {
+			CompoundTag rec = records.get(owner.getUUID().toString());
+			if (rec == null) continue;
+			if (rec.contains("stash")) {
+				long respawn = rec.getLongOr("respawn", 0L);
+				if (time >= respawn && owner.isAlive() && !owner.isSpectator()
+						&& !InfinityCompat.partnerWaitsOutside(owner.level().dimension())) {
+					restore(owner, rec, respawn > 0);
+				}
+			} else {
+				PartnerEntity partner = find(owner);
+				if (partner == null) {
+					int missing = MISSING.merge(owner.getUUID(), 1, Integer::sum);
+					if (missing > LOST_AFTER && rec.contains("snapshot")) {
+						// Lost track of it (chunk gone, crash, external removal): bring the last backup back.
+						CompoundTag r = rec.copy();
+						r.put("stash", r.getCompoundOrEmpty("snapshot"));
+						put(owner.getUUID(), r);
+						MISSING.remove(owner.getUUID());
+					}
+				} else {
+					MISSING.remove(owner.getUUID());
+					if (partner.tickCount % SNAPSHOT_EVERY == 0) {
+						CompoundTag r = rec.copy();
+						r.put("snapshot", save(partner));
+						put(owner.getUUID(), r);
+					}
+				}
+			}
+			if (time % 10 == 0) sendStatus(owner);
+		}
+	}
+
+	private static void restore(ServerPlayer owner, CompoundTag rec, boolean afterDeath) {
+		ServerLevel level = owner.level();
+		PartnerEntity partner = load(level, rec.getCompoundOrEmpty("stash"));
+		CompoundTag r = rec.copy();
+		r.remove("stash");
+		r.remove("respawn");
+		if (partner == null) {
+			remove(owner.getUUID());
+			say(owner, "failed");
+			return;
+		}
+		partner.setUUID(UUID.randomUUID());
+		partner.revive(afterDeath);
+		Vec3 spot = PartnerEntity.safeSpotNear(level, owner.blockPosition(), partner);
+		partner.snapTo(spot.x, spot.y, spot.z, owner.getYRot() + 180f, 0f);
+		if (!level.addFreshEntity(partner)) return;
+		r.putString("entity", partner.getUUID().toString());
+		put(owner.getUUID(), r);
+		LIVE.put(owner.getUUID(), partner);
+		partner.arrivalFx();
+		PartnerFx.toast(partner, "summon");
+		partner.speak(afterDeath ? "back_from_death" : "back");
+		sendStatus(owner);
+	}
+
+	/** Takes the partner out of the world (owner left or went somewhere the partner waits outside). */
+	private static void stash(ServerPlayer owner, boolean announce) {
+		CompoundTag rec = record(owner);
+		if (rec == null || rec.contains("stash")) return;
+		PartnerEntity partner = find(owner);
+		if (partner == null) return;
+		CompoundTag r = rec.copy();
+		r.put("stash", save(partner));
+		put(owner.getUUID(), r);
+		if (announce) {
+			partner.speak("wait_outside");
+			partner.leaveFx();
+		}
+		partner.discard();
+		LIVE.remove(owner.getUUID());
+	}
+
+	private static void ownerChangedLevel(ServerPlayer owner, ServerLevel to) {
+		if (InfinityCompat.partnerWaitsOutside(to.dimension())) {
+			stash(owner, true);
+			return;
+		}
+		PartnerEntity partner = find(owner);
+		if (partner == null || partner.level() == to || partner.isDeadOrDying()) return;
+		partner.followAcrossLevels(owner);
+	}
+
+	/** Moves the partner next to the owner, across dimensions if needed. */
+	public static @Nullable PartnerEntity teleportToOwner(PartnerEntity partner, ServerPlayer owner) {
+		ServerLevel level = owner.level();
+		Vec3 spot = PartnerEntity.safeSpotNear(level, owner.blockPosition(), partner);
+		if (partner.level() == level) {
+			partner.snapTo(spot.x, spot.y, spot.z, partner.getYRot(), partner.getXRot());
+			partner.getNavigation().stop();
+			partner.setDeltaMovement(Vec3.ZERO);
+			partner.resetFallDistance();
+			return partner;
+		}
+		Entity moved = partner.teleport(new TeleportTransition(level, spot, Vec3.ZERO, partner.getYRot(), 0f, TeleportTransition.DO_NOTHING));
+		if (moved instanceof PartnerEntity p) {
+			CompoundTag rec = record(owner);
+			if (rec != null) {
+				CompoundTag r = rec.copy();
+				r.putString("entity", p.getUUID().toString());
+				put(owner.getUUID(), r);
+			}
+			LIVE.put(owner.getUUID(), p);
+			return p;
+		}
+		return null;
+	}
+
+	// ------------------------------------------------------------------ helpers
+
+	public static @Nullable PartnerEntity find(ServerPlayer owner) {
+		PartnerEntity cached = LIVE.get(owner.getUUID());
+		if (cached != null && !cached.isRemoved()) return cached;
+		LIVE.remove(owner.getUUID());
+		CompoundTag rec = record(owner);
+		if (rec == null || rec.contains("stash") || server == null) return null;
+		UUID id;
+		try {
+			id = UUID.fromString(rec.getStringOr("entity", ""));
+		} catch (IllegalArgumentException e) {
+			return null;
+		}
+		for (ServerLevel level : server.getAllLevels()) {
+			if (level.getEntity(id) instanceof PartnerEntity p && !p.isRemoved()) {
+				LIVE.put(owner.getUUID(), p);
+				return p;
+			}
+		}
+		return null;
+	}
+
+	private static @Nullable CompoundTag record(ServerPlayer owner) {
+		return records.get(owner.getUUID().toString());
+	}
+
+	private static void put(UUID owner, CompoundTag rec) {
+		records.put(owner.toString(), rec);
+		flush();
+	}
+
+	private static void remove(UUID owner) {
+		records.remove(owner.toString());
+		flush();
+	}
+
+	private static void flush() {
+		if (server != null) server.overworld().setAttached(RECORDS, new HashMap<>(records));
+	}
+
+	static CompoundTag save(PartnerEntity partner) {
+		TagValueOutput out = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, partner.registryAccess());
+		partner.saveWithoutId(out);
+		return out.buildResult();
+	}
+
+	private static @Nullable PartnerEntity load(ServerLevel level, CompoundTag tag) {
+		if (tag.isEmpty()) return null;
+		PartnerEntity partner = LocalPartner.PARTNER.create(level, EntitySpawnReason.LOAD);
+		if (partner == null) return null;
+		partner.load(TagValueInput.create(ProblemReporter.DISCARDING, level.registryAccess(), tag));
+		return partner;
+	}
+
+	public static void sendStatus(ServerPlayer owner) {
+		CompoundTag rec = record(owner);
+		if (rec == null) {
+			PartnerNetwork.send(owner, new PartnerNetwork.Status(0, "", "", 0f, 0));
+			return;
+		}
+		if (rec.contains("stash")) {
+			boolean dead = rec.contains("respawn");
+			PartnerNetwork.send(owner, new PartnerNetwork.Status(dead ? 3 : 2, "", "", 0f, 0));
+			return;
+		}
+		PartnerEntity p = find(owner);
+		if (p == null) {
+			PartnerNetwork.send(owner, new PartnerNetwork.Status(2, "", "", 0f, 0));
+			return;
+		}
+		PartnerNetwork.send(owner, new PartnerNetwork.Status(1, p.order().id, p.activity(), p.getHealth(), p.foodLevel()));
+	}
+
+	private static void say(ServerPlayer owner, String key) {
+		owner.sendSystemMessage(Component.translatable("partner.local_partner.system." + key));
+		owner.level().playSound(null, owner.blockPosition(), SoundEvents.UI_BUTTON_CLICK.value(), SoundSource.PLAYERS, 0.3f, 1.2f);
+	}
+
+	private PartnerManager() {}
+}

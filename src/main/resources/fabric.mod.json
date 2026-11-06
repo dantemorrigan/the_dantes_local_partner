@@ -1,0 +1,23 @@
+{
+	"schemaVersion": 1,
+	"id": "local_partner",
+	"version": "${version}",
+	"name": "The Dante's Local Partner",
+	"description": "A co-op companion bot: follows you, helps, takes orders from the command wheel (C) and plays Minecraft on its own.",
+	"authors": ["dantemorrigan"],
+	"license": "CC0-1.0",
+	"environment": "*",
+	"entrypoints": {
+		"main": ["com.dantemorrigan.partner.LocalPartner"],
+		"client": ["com.dantemorrigan.partner.client.LocalPartnerClient"]
+	},
+	"depends": {
+		"fabricloader": ">=0.20.1",
+		"minecraft": "~26.1.2",
+		"java": ">=25",
+		"fabric-api": "*"
+	},
+	"suggests": {
+		"infinity_gauntlet": "*"
+	}
+}

@@ -1,0 +1,66 @@
+plugins {
+	id 'net.fabricmc.fabric-loom' version "${loom_version}"
+}
+
+repositories {
+}
+
+loom {
+	splitEnvironmentSourceSets()
+
+	mods {
+		"local_partner" {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+	// Optional: drop The Dante's Infinity jar into libs/ to test compatibility in runClient.
+	// The partner never links against it at compile time (all checks go through ids and the loader).
+	fileTree(dir: 'libs', include: '*.jar').each { localRuntime files(it) }
+}
+
+processResources {
+	def version = project.version
+	inputs.property "version", version
+
+	filesMatching("fabric.mod.json") {
+		expand "version": version
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 25
+}
+
+java {
+	withSourcesJar()
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
+}
+
+jar {
+	def projectName = project.name
+	inputs.property "projectName", projectName
+	from("LICENSE") {
+		rename { "${it}_$projectName" }
+	}
+}
+
+// Client game test (real client, screenshots in build/run/clientGameTest/screenshots):
+// xvfb-run -a ./gradlew runClientGameTest   (put the Infinity jar into libs/ to test compatibility too)
+fabricApi {
+	configureTests {
+		createSourceSet = true
+		modId = "local_partner_gametest"
+		enableGameTests = false
+		enableClientGameTests = true
+		eula = true
+	}
+}

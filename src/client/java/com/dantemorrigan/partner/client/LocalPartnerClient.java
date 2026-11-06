@@ -1,0 +1,58 @@
+package com.dantemorrigan.partner.client;
+
+import com.dantemorrigan.partner.LocalPartner;
+import com.dantemorrigan.partner.PartnerFx;
+import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.particle.v1.ParticleProviderRegistry;
+import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
+import net.fabricmc.fabric.api.client.screen.v1.Screens;
+import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.screens.PauseScreen;
+import net.minecraft.core.particles.SimpleParticleType;
+import net.minecraft.network.chat.Component;
+
+public final class LocalPartnerClient implements ClientModInitializer {
+	@Override
+	public void onInitializeClient() {
+		EntityRendererRegistry.register(LocalPartner.PARTNER, PartnerRenderer::new);
+		particle(PartnerFx.SUMMON, 12, 36);
+		particle(PartnerFx.RECALL, 10, 37);
+		particle(PartnerFx.ACCEPTED, 9, 24);
+		particle(PartnerFx.GUARD, 8, 23);
+		particle(PartnerFx.ASSIST, 10, 25);
+		particle(PartnerFx.PATROL, 12, 34);
+		particle(PartnerFx.DISMISS, 12, 36);
+		ClientState.init();
+		PartnerKeys.init();
+		PartnerHud.init();
+		pauseEntry();
+	}
+
+	private static void particle(SimpleParticleType type, int frames, int anchorY) {
+		ParticleProviderRegistry.getInstance().register(type, sprites -> (t, level, x, y, z, xa, ya, za, random) ->
+				new PartnerParticle(level, x, y, z, sprites, frames, anchorY));
+	}
+
+	/**
+	 * "Local Partner…" in the pause menu's center column, right above the quit button (which moves down a row).
+	 * The Dante's Infinity's own settings button sits in the bottom-left corner, so they never overlap.
+	 */
+	private static void pauseEntry() {
+		ScreenEvents.AFTER_INIT.register((client, screen, w, h) -> {
+			if (!(screen instanceof PauseScreen) || client.level == null) return;
+			Button quit = null;
+			for (AbstractWidget widget : Screens.getWidgets(screen).stream().filter(AbstractWidget.class::isInstance).map(AbstractWidget.class::cast).toList()) {
+				if (!(widget instanceof Button b) || b.getWidth() < 150) continue;
+				if (Math.abs(b.getX() + b.getWidth() / 2 - w / 2) > 4) continue;
+				if (quit == null || b.getY() > quit.getY()) quit = b;
+			}
+			if (quit == null) return; // pause menu without buttons (F3+Esc)
+			int x = quit.getX(), y = quit.getY(), width = quit.getWidth();
+			quit.setY(y + 24);
+			Screens.getWidgets(screen).add(Button.builder(Component.translatable("local_partner.pause.entry"),
+					b -> client.setScreen(new PartnerPanelScreen(screen))).bounds(x, y, width, 20).build());
+		});
+	}
+}
