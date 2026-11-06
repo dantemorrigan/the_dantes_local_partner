@@ -47,6 +47,7 @@ public final class PartnerManager {
 
 	private static final Map<UUID, PartnerEntity> LIVE = new HashMap<>();
 	private static final Map<UUID, Integer> MISSING = new HashMap<>();
+	private static final Map<UUID, Integer> NO_SPOT = new HashMap<>();
 	private static Map<String, CompoundTag> records = new HashMap<>();
 	private static MinecraftServer server;
 
@@ -216,28 +217,46 @@ public final class PartnerManager {
 			say(owner, "failed");
 			return;
 		}
+		Vec3 spot = PartnerEntity.findSafeSpot(level, owner.blockPosition(), partner);
+		if (spot == null) {
+			// Chunks around the owner are still loading: try again next tick, land next to them after a second.
+			if (NO_SPOT.merge(owner.getUUID(), 1, Integer::sum) < 20) return;
+			spot = owner.position(); // the one spot known to be breathable
+		}
+		NO_SPOT.remove(owner.getUUID());
+		boolean travel = rec.getBooleanOr("travel", false);
+		r.remove("travel");
 		partner.setUUID(UUID.randomUUID());
 		partner.revive(afterDeath);
-		Vec3 spot = PartnerEntity.safeSpotNear(level, owner.blockPosition(), partner);
+		if (travel && partner.order().anchored()) partner.setOrderQuiet(PartnerOrder.FOLLOW);
 		partner.snapTo(spot.x, spot.y, spot.z, owner.getYRot() + 180f, 0f);
 		if (!level.addFreshEntity(partner)) return;
 		r.putString("entity", partner.getUUID().toString());
 		put(owner.getUUID(), r);
 		LIVE.put(owner.getUUID(), partner);
-		partner.arrivalFx();
-		PartnerFx.toast(partner, "summon");
-		partner.speak(afterDeath ? "back_from_death" : "back");
+		if (travel) {
+			PartnerFx.recall(partner); // simply came along through the portal/teleport
+		} else {
+			partner.arrivalFx();
+			PartnerFx.toast(partner, "summon");
+			partner.speak(afterDeath ? "back_from_death" : "back");
+		}
 		sendStatus(owner);
 	}
 
 	/** Takes the partner out of the world (owner left or went somewhere the partner waits outside). */
 	private static void stash(ServerPlayer owner, boolean announce) {
+		stash(owner, announce, false);
+	}
+
+	private static void stash(ServerPlayer owner, boolean announce, boolean travel) {
 		CompoundTag rec = record(owner);
 		if (rec == null || rec.contains("stash")) return;
 		PartnerEntity partner = find(owner);
 		if (partner == null) return;
 		CompoundTag r = rec.copy();
 		r.put("stash", save(partner));
+		if (travel) r.putBoolean("travel", true);
 		put(owner.getUUID(), r);
 		if (announce) {
 			partner.speak("wait_outside");
@@ -254,13 +273,31 @@ public final class PartnerManager {
 		}
 		PartnerEntity partner = find(owner);
 		if (partner == null || partner.level() == to || partner.isDeadOrDying()) return;
-		partner.followAcrossLevels(owner);
+		travel(owner);
 	}
 
-	/** Moves the partner next to the owner, across dimensions if needed. */
+	/**
+	 * Follows the owner into another dimension: the partner leaves its level right away (so it is never left in a
+	 * chunk that unloads behind the owner) and reappears next to them as soon as there is a safe spot.
+	 */
+	public static void travel(ServerPlayer owner) {
+		stash(owner, false, true);
+	}
+
+	/**
+	 * Moves the partner next to the owner, across dimensions if needed. Returns null (and does nothing) while there is
+	 * no safe spot yet, e.g. right after the owner arrived and the chunks are still loading; callers simply retry.
+	 * After a few seconds without any safe spot it lands next to the owner anyway, so it never gets left behind.
+	 */
 	public static @Nullable PartnerEntity teleportToOwner(PartnerEntity partner, ServerPlayer owner) {
 		ServerLevel level = owner.level();
-		Vec3 spot = PartnerEntity.safeSpotNear(level, owner.blockPosition(), partner);
+		Vec3 spot = PartnerEntity.findSafeSpot(level, owner.blockPosition(), partner);
+		if (spot == null) {
+			int waited = NO_SPOT.merge(owner.getUUID(), 1, Integer::sum);
+			if (waited < 20) return null;
+			spot = owner.position(); // the one spot known to be breathable
+		}
+		NO_SPOT.remove(owner.getUUID());
 		if (partner.level() == level) {
 			partner.snapTo(spot.x, spot.y, spot.z, partner.getYRot(), partner.getXRot());
 			partner.getNavigation().stop();

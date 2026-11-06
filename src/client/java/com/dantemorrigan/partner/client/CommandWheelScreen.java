@@ -43,17 +43,38 @@ public final class CommandWheelScreen extends Screen {
 		return width < 456;
 	}
 
+	// Layout: title row (top 34 px), hint bar (bottom 34 px); the wheel and the description card share the rest.
+	private static final int TOP = 34, BOTTOM = 34, GAP = 6;
+
+	private int cardW() {
+		return compact() ? Math.min(width - 20, 240) : 140;
+	}
+
+	private int cardH() {
+		var font = Minecraft.getInstance().font;
+		int lines = Math.max(1, font.split(description(), cardW() - 14).size());
+		return 25 + lines * 9 + 5;
+	}
+
 	private float scale() {
-		float usable = compact() ? Math.min(width - 16, height - 110) : Math.min(width - 260, height - 70);
-		return Math.max(0.45f, Math.min(1.25f, usable / SIZE));
+		float usable = compact() ? Math.min(width - 16, height - TOP - BOTTOM - cardH() - GAP * 2)
+				: Math.min(width - 2 * (cardW() + 16), height - TOP - BOTTOM);
+		return Math.max(0.35f, Math.min(1.25f, usable / SIZE));
 	}
 
 	private float cx() {
-		return compact() ? width / 2f : width / 2f - 30;
+		return width / 2f;
 	}
 
 	private float cy() {
-		return compact() ? (height - 70) / 2f + 18 : height / 2f;
+		float wheel = SIZE * scale();
+		return compact() ? TOP + GAP + wheel / 2f : TOP + (height - TOP - BOTTOM) / 2f;
+	}
+
+	private Component description() {
+		if (focus < 0) return Component.translatable("local_partner.wheel.hover_hint");
+		if (!available(focus)) return Component.translatable("local_partner.wheel.unavailable_detail");
+		return Component.translatable("local_partner.command." + IDS[focus] + ".desc");
 	}
 
 	private static boolean available(int sector) {
@@ -110,31 +131,31 @@ public final class CommandWheelScreen extends Screen {
 				(int) (x0 + 112 * s), (int) (y0 + 124 * s) - 4, (int) (80 * s), Ui.ACCENT, true);
 
 		// Description card: right of the wheel, or under it on narrow screens.
-		int cardW = 132, cardH = 62;
-		int cardX = compact() ? (int) (width / 2f - cardW / 2f) : (int) (x0 + SIZE * s + 8);
-		int cardY = compact() ? (int) (y0 + SIZE * s + 6) : (int) (cy() - cardH / 2f);
-		cardX = Math.min(cardX, width - cardW - 6);
+		int cardW = cardW(), cardH = cardH();
+		int cardX = compact() ? (int) (width / 2f - cardW / 2f) : (int) (x0 + SIZE * s + 10);
+		int cardY = compact() ? (int) (y0 + SIZE * s + GAP) : (int) (cy() - cardH / 2f);
+		cardX = Math.max(6, Math.min(cardX, width - cardW - 6));
 		Ui.frame(g, "panel", cardX, cardY, cardW, cardH);
 		if (focus < 0) {
 			Ui.icon(g, "partner", cardX + 7, cardY + 7, 12);
 			Ui.fitText(g, Component.translatable("local_partner.wheel.neutral"), cardX + 23, cardY + 9, cardW - 30, Ui.ACCENT, false);
-			g.textWithWordWrap(font, Component.translatable("local_partner.wheel.hover_hint"), cardX + 7, cardY + 25, cardW - 14, Ui.MUTED, false);
+			g.textWithWordWrap(font, description(), cardX + 7, cardY + 25, cardW - 14, Ui.MUTED, false);
 		} else if (!available(focus)) {
 			Ui.icon(g, "alert", cardX + 7, cardY + 7, 12);
 			Ui.fitText(g, Component.translatable("local_partner.wheel.unavailable"), cardX + 23, cardY + 9, cardW - 30, Ui.ALERT, false);
-			g.textWithWordWrap(font, Component.translatable("local_partner.wheel.unavailable_detail"), cardX + 7, cardY + 25, cardW - 14, Ui.MUTED, false);
+			g.textWithWordWrap(font, description(), cardX + 7, cardY + 25, cardW - 14, Ui.MUTED, false);
 		} else {
 			Ui.icon(g, IDS[focus], cardX + 7, cardY + 7, 12);
 			Ui.fitText(g, Component.translatable("local_partner.command." + IDS[focus]).withStyle(ChatFormatting.BOLD),
 					cardX + 23, cardY + 9, cardW - 30, ACCENT[focus], false);
-			g.textWithWordWrap(font, Component.translatable("local_partner.command." + IDS[focus] + ".desc"), cardX + 7, cardY + 25, cardW - 14, Ui.MUTED, false);
+			g.textWithWordWrap(font, description(), cardX + 7, cardY + 25, cardW - 14, Ui.MUTED, false);
 		}
 
 		// Controls hint, bottom left.
 		Component hint = Component.translatable("local_partner.wheel.hint");
 		int hw = Math.min(width - 20, font.width(hint) + 16);
-		Ui.frame(g, "panel", 10, height - 30, hw, 20);
-		Ui.fitText(g, hint, 18, height - 24, hw - 16, Ui.TEXT, false);
+		Ui.frame(g, "panel", 10, height - 28, hw, 20);
+		Ui.fitText(g, hint, 18, height - 22, hw - 16, Ui.TEXT, false);
 	}
 
 	private void confirm() {

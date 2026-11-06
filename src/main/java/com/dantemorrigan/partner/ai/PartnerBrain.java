@@ -144,7 +144,7 @@ public final class PartnerBrain {
 			return;
 		}
 		if (owner.level() != p.level()) {
-			if (!InfinityCompat.partnerWaitsOutside(owner.level().dimension())) p.followAcrossLevels(owner);
+			if (!InfinityCompat.partnerWaitsOutside(owner.level().dimension())) PartnerManager.travel(owner);
 			return;
 		}
 		if (survive(level, owner)) return;
@@ -226,13 +226,15 @@ public final class PartnerBrain {
 	public void teleportHome(ServerPlayer owner, @Nullable String line) {
 		breaker.cancel((ServerLevel) p.level(), p);
 		PartnerEntity moved = PartnerManager.teleportToOwner(p, owner);
-		if (moved != null) {
-			PartnerFx.recall(moved);
-			PartnerFx.toast(moved, "recall");
+		if (moved == null) {
+			teleportCooldown = 1; // no safe spot yet (chunks loading): try again next tick
+			return;
 		}
+		PartnerFx.recall(moved);
+		PartnerFx.toast(moved, "recall");
 		stuckTicks = 0;
 		teleportCooldown = 40;
-		lastProgressPos = p.position();
+		lastProgressPos = moved.position();
 		if (line != null) say(line);
 	}
 
@@ -350,7 +352,13 @@ public final class PartnerBrain {
 	private boolean care(ServerLevel level, ServerPlayer owner) {
 		if (careCooldown > 0 || owner.isCreative()) return false;
 		boolean dying = owner.getHealth() <= 6;
-		boolean hungry = owner.getFoodData().getFoodLevel() <= 12;
+		// Hungry and nothing to eat on them (a player with food in the pocket can feed themselves).
+		int ownerFood = 0;
+		for (int i = 0; i < owner.getInventory().getContainerSize(); i++) {
+			ItemStack s = owner.getInventory().getItem(i);
+			if (Gear.isFood(s)) ownerFood += Gear.nutrition(s) * s.getCount();
+		}
+		boolean hungry = owner.getFoodData().getFoodLevel() <= 12 && ownerFood < 6;
 		int foodSlot = -1;
 		if (dying) foodSlot = slotOf(s -> s.is(Items.GOLDEN_APPLE) || s.is(Items.ENCHANTED_GOLDEN_APPLE));
 		if (foodSlot < 0 && (hungry || dying && owner.getFoodData().getFoodLevel() < 18) && giveFoodCooldown == 0) {
@@ -370,10 +378,12 @@ public final class PartnerBrain {
 				: Math.max(1, Math.min(s.getCount(), (20 - owner.getFoodData().getFoodLevel()) / Math.max(1, Gear.nutrition(s)) + 1));
 		ItemStack given = p.backpack().removeItem(foodSlot, amount);
 		p.getLookControl().setLookAt(owner);
+		Component name = given.getHoverName();
+		int count = given.getCount();
 		p.giveTo(owner, given);
 		PartnerFx.assist(p, owner);
 		PartnerFx.toast(p, "assist");
-		p.speak("gave_food", given.getHoverName(), given.getCount());
+		p.speak("gave_food", name, count);
 		giveFoodCooldown = 20 * 40;
 		careCooldown = 40;
 		return true;

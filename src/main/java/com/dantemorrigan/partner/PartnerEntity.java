@@ -419,19 +419,13 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 	}
 
 	public void onOwnerRespawned(ServerPlayer player) {
+		if (player.level() != this.level()) {
+			PartnerManager.travel(player);
+			return;
+		}
 		PartnerEntity moved = PartnerManager.teleportToOwner(this, player);
 		if (moved != null) PartnerFx.recall(moved);
 		speak("owner_respawned");
-	}
-
-	public void followAcrossLevels(ServerPlayer player) {
-		if (order.anchored()) setOrderQuiet(PartnerOrder.FOLLOW);
-		brain.reset();
-		PartnerEntity moved = PartnerManager.teleportToOwner(this, player);
-		if (moved != null) {
-			PartnerFx.recall(moved);
-			PartnerFx.toast(moved, "recall");
-		}
 	}
 
 	@Override
@@ -469,8 +463,14 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 
 	// ------------------------------------------------------------------ teleport spot
 
-	/** A safe standing spot 2-3 blocks around {@code center}, or the center itself if nothing better. */
+	/** A safe standing spot 2-4 blocks around {@code center}, or the center itself if nothing better. */
 	public static Vec3 safeSpotNear(ServerLevel level, BlockPos center, PartnerEntity partner) {
+		Vec3 spot = findSafeSpot(level, center, partner);
+		return spot != null ? spot : Vec3.atBottomCenterOf(center);
+	}
+
+	/** A safe standing spot 2-4 blocks around {@code center}, or null (e.g. chunks not loaded yet). */
+	public static @Nullable Vec3 findSafeSpot(ServerLevel level, BlockPos center, PartnerEntity partner) {
 		BlockPos best = null;
 		for (int r = 2; r <= 4 && best == null; r++) {
 			for (int dx = -r; dx <= r && best == null; dx++) {
@@ -486,8 +486,7 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 				}
 			}
 		}
-		BlockPos p = best != null ? best : center;
-		return new Vec3(p.getX() + 0.5, p.getY(), p.getZ() + 0.5);
+		return best == null ? null : new Vec3(best.getX() + 0.5, best.getY(), best.getZ() + 0.5);
 	}
 
 	public static boolean isSafeStand(ServerLevel level, BlockPos pos, PartnerEntity partner) {
