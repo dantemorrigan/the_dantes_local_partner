@@ -56,9 +56,12 @@ public final class PartnerRenderer extends LivingEntityRenderer<PartnerEntity, A
 		super.extractRenderState(partner, state, partialTicks);
 		HumanoidMobRenderer.extractHumanoidRenderState(partner, state, partialTicks, this.itemModelResolver);
 		state.skin = SKINS[partner.skin()];
-		state.rightArmPose = partner.getMainHandItem().isEmpty() ? HumanoidModel.ArmPose.EMPTY : HumanoidModel.ArmPose.ITEM;
-		state.leftArmPose = partner.getOffhandItem().isEmpty() ? HumanoidModel.ArmPose.EMPTY
-				: HumanoidModel.ArmPose.ITEM;
+		boolean drawingBow = partner.isUsingItem() && com.dantemorrigan.partner.ai.Gear.isBow(partner.getUseItem());
+		boolean blockingShield = partner.isUsingItem() && com.dantemorrigan.partner.ai.Gear.isShield(partner.getUseItem());
+		state.rightArmPose = drawingBow ? HumanoidModel.ArmPose.BOW_AND_ARROW
+				: partner.getMainHandItem().isEmpty() ? HumanoidModel.ArmPose.EMPTY : HumanoidModel.ArmPose.ITEM;
+		state.leftArmPose = blockingShield ? HumanoidModel.ArmPose.BLOCK
+				: partner.getOffhandItem().isEmpty() ? HumanoidModel.ArmPose.EMPTY : HumanoidModel.ArmPose.ITEM;
 		state.id = partner.getId();
 		state.isSpectator = false;
 	}

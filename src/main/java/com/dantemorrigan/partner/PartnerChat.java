@@ -30,10 +30,11 @@ public final class PartnerChat {
 	/** Accent colors of the wheel sectors, reused for answer buttons. */
 	public static final int FOLLOW = 0x92F0BD, WOOD = 0xF2BB84, ORE = 0xA2DFED, GUARD = 0xF4A594, PATROL = 0xC2C8FF, FREE = 0xE0EABA;
 
-	private static final Set<String> ALERT = Set.of("retreat", "escaped_fire", "escaped_void", "fight", "fight_boss", "recovering", "starving", "full");
-	private static final Set<String> HELP = Set.of("stalled", "auto_switch", "plan", "gave_food", "recovered", "brought", "gave_all", "thanks", "owner_respawned", "fix_food", "fix_tools");
-	private static final Set<String> GOOD = Set.of("ore_found", "ore_mined", "tree_done", "hunt_done", "smelt_done", "era_up", "table_packed", "good_morning", "hello", "back", "back_from_death", "crafted", "done_wood", "done_ore", "table_placed",
-			"order_follow", "order_wood", "order_ore", "order_guard", "order_patrol", "order_free", "order_give");
+	private static final Set<String> ALERT = Set.of("retreat", "escaped_fire", "escaped_void", "escaped_water", "fight", "fight_boss", "recovering", "starving", "full", "no_chest", "campfire_need_wood", "sos_evacuated");
+	private static final Set<String> HELP = Set.of("stalled", "auto_switch", "plan", "gave_food", "recovered", "brought", "gave_all", "stored_chest", "thanks", "owner_respawned", "fix_food", "fix_tools", "self_unstuck", "self_unstuck_surface", "returning_base", "build_analyzed", "build_new", "farm_herding");
+	private static final Set<String> GOOD = Set.of("ore_found", "ore_mined", "tree_done", "hunt_done", "smelt_done", "era_up", "table_packed", "furnace_placed", "furnace_packed", "campfire_placed", "good_morning", "hello", "back", "back_from_death", "crafted", "done_wood", "done_ore", "table_placed",
+			"order_follow", "order_wood", "order_ore", "order_guard", "order_patrol", "order_free", "order_give", "order_expedition", "order_build", "order_farm",
+			"dungeon_torched", "dungeon_looted", "traded", "poi_dungeon", "poi_village", "poi_biome", "build_done", "farm_pen_built", "tamed_pet");
 
 	public static Tone toneOf(String key) {
 		if (ALERT.contains(key)) return Tone.ALERT;

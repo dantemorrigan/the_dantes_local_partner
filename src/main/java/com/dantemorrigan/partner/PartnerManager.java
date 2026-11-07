@@ -45,9 +45,9 @@ public final class PartnerManager {
 	private static final int SNAPSHOT_EVERY = 20 * 5;
 	private static final int LOST_AFTER = 20 * 20;
 
-	private static final Map<UUID, PartnerEntity> LIVE = new HashMap<>();
-	private static final Map<UUID, Integer> MISSING = new HashMap<>();
-	private static final Map<UUID, Integer> NO_SPOT = new HashMap<>();
+	private static final Map<UUID, PartnerEntity> LIVE = new java.util.concurrent.ConcurrentHashMap<>();
+	private static final Map<UUID, Integer> MISSING = new java.util.concurrent.ConcurrentHashMap<>();
+	private static final Map<UUID, Integer> NO_SPOT = new java.util.concurrent.ConcurrentHashMap<>();
 	private static Map<String, CompoundTag> records = new HashMap<>();
 	private static MinecraftServer server;
 	private static boolean loaded;
@@ -170,6 +170,30 @@ public final class PartnerManager {
 				partner.brain().initiative.quiet();
 				return;
 			}
+			case "store" -> {
+				partner.brain().storeInChest();
+				sendStatus(owner);
+				return;
+			}
+			case "home" -> {
+				partner.brain().returnToBase(owner);
+				sendStatus(owner);
+				return;
+			}
+			case "campfire" -> {
+				partner.brain().makeCampfire(owner);
+				return;
+			}
+			case "skin_next" -> {
+				partner.cycleSkin(1);
+				sendStatus(owner);
+				return;
+			}
+			case "skin_prev" -> {
+				partner.cycleSkin(-1);
+				sendStatus(owner);
+				return;
+			}
 			default -> {}
 		}
 		PartnerOrder o = PartnerOrder.byId(order);
@@ -226,9 +250,9 @@ public final class PartnerManager {
 				PartnerEntity partner = find(owner);
 				if (partner == null) {
 					int missing = MISSING.merge(owner.getUUID(), 1, Integer::sum);
-					if (missing == 1) {
-						// Not found: it may simply be standing in a chunk that is not loaded (it roams far). Load it.
-						if (loadItsChunk(owner, rec)) LocalPartner.LOG.info("Partner of {} not found, loaded its last chunk", owner.getGameProfile().name());
+					if (missing == 1 || missing % 20 == 0) {
+						// Not found: it may simply be standing in a chunk that is not loaded (it roams far). Load and ticket it.
+						if (loadItsChunk(owner, rec) && missing == 1) LocalPartner.LOG.info("Partner of {} not found, loaded its last chunk", owner.getGameProfile().name());
 					}
 					if (missing > LOST_AFTER && rec.contains("snapshot")) {
 						// Really gone (removed from outside): bring the last backup back.
@@ -240,6 +264,9 @@ public final class PartnerManager {
 					}
 				} else {
 					MISSING.remove(owner.getUUID());
+					if (time % 20 == 0 && partner.level() instanceof ServerLevel sl && sl.getNearestPlayer(partner, 96) == null) {
+						sl.getChunkSource().addTicketWithRadius(LocalPartner.ROAM_TICKET, partner.chunkPosition(), 2);
+					}
 					if (partner.tickCount > 40 && partner.tickCount % SNAPSHOT_EVERY == 0) snapshot(owner, partner);
 				}
 			}
@@ -284,7 +311,7 @@ public final class PartnerManager {
 		}
 	}
 
-	/** Loads the chunk where the partner was last seen (it may roam far from every player). */
+	/** Loads and tickets the chunk where the partner was last seen (it may roam far from every player). */
 	private static boolean loadItsChunk(ServerPlayer owner, CompoundTag rec) {
 		if (server == null || !rec.contains("pos") || !rec.contains("dim")) return false;
 		int[] pos = rec.getIntArray("pos").orElse(new int[0]);
@@ -292,7 +319,9 @@ public final class PartnerManager {
 		String dim = rec.getStringOr("dim", "");
 		for (ServerLevel level : server.getAllLevels()) {
 			if (!level.dimension().identifier().toString().equals(dim)) continue;
-			level.getChunk(pos[0] >> 4, pos[2] >> 4); // synchronous load; the entity registers with it
+			int cx = pos[0] >> 4, cz = pos[2] >> 4;
+			level.getChunkSource().addTicketWithRadius(LocalPartner.ROAM_TICKET, new net.minecraft.world.level.ChunkPos(cx, cz), 2);
+			level.getChunk(cx, cz);
 			return true;
 		}
 		return false;
@@ -500,7 +529,9 @@ public final class PartnerManager {
 			PartnerNetwork.send(owner, new PartnerNetwork.Status(2, "", "", "", 0, 0f, 0));
 			return;
 		}
-		PartnerNetwork.send(owner, new PartnerNetwork.Status(1, p.order().id, p.activity(), p.brain().detail, p.brain().era(), p.getHealth(), p.foodLevel()));
+		PartnerNetwork.send(owner, new PartnerNetwork.Status(
+				1, p.order().id, p.activity(), p.brain().detail, p.brain().era(), p.getHealth(), p.foodLevel(),
+				p.getBlockX(), p.getBlockY(), p.getBlockZ(), p.brain().poisSummary(owner)));
 	}
 
 	private static void say(ServerPlayer owner, String key) {

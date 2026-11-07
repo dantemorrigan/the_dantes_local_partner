@@ -31,17 +31,22 @@ public final class LocalPartnerClient implements ClientModInitializer {
 		backpackButtons();
 	}
 
-	/** The partner's backpack (a chest screen titled "local_partner.backpack.title"): "Give me everything" button. */
+	/** The partner's backpack (a chest screen titled "local_partner.backpack.title"): "Give me everything", "Resources only", "To chest" buttons. */
 	private static void backpackButtons() {
 		ScreenEvents.AFTER_INIT.register((client, screen, w, h) -> {
 			if (!(screen instanceof net.minecraft.client.gui.screens.inventory.AbstractContainerScreen<?> container)) return;
 			if (!(screen.getTitle().getContents() instanceof net.minecraft.network.chat.contents.TranslatableContents t)
 					|| !t.getKey().equals("local_partner.backpack.title")) return;
-			int bw = 120, bx = (w - bw * 2 - 6) / 2, by = Math.max(4, (h - 166) / 2 - 26);
+			int bw = 96, bx = (w - bw * 3 - 8) / 2, by = Math.max(4, (h - 166) / 2 - 26);
 			Screens.getWidgets(screen).add(new PartnerButton(bx, by, bw, 20, Component.translatable("local_partner.backpack.give_all"),
 					Ui.Style.PRIMARY, "assist", null, () -> send("give_all")));
-			Screens.getWidgets(screen).add(new PartnerButton(bx + bw + 6, by, bw, 20, Component.translatable("local_partner.backpack.give_res"),
+			Screens.getWidgets(screen).add(new PartnerButton(bx + bw + 4, by, bw, 20, Component.translatable("local_partner.backpack.give_res"),
 					Ui.Style.NORMAL, "ore", null, () -> send("give_res")));
+			Screens.getWidgets(screen).add(new PartnerButton(bx + (bw + 4) * 2, by, bw, 20, Component.translatable("local_partner.backpack.store"),
+					Ui.Style.NORMAL, "free", null, () -> {
+						send("store");
+						client.setScreen(null);
+					}));
 		});
 	}
 

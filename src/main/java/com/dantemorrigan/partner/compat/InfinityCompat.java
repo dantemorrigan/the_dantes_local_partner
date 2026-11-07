@@ -34,6 +34,7 @@ public final class InfinityCompat {
 
 	public static void init() {
 		LOADED = FabricLoader.getInstance().isModLoaded(MOD_ID);
+		if (LOADED) com.dantemorrigan.partner.ai.Crafting.initModRecipes();
 	}
 
 	/**
@@ -65,6 +66,24 @@ public final class InfinityCompat {
 	public static boolean isUruOre(BlockState state) {
 		Identifier id = BuiltInRegistries.BLOCK.getKey(state.getBlock());
 		return MOD_ID.equals(id.getNamespace()) && id.getPath().endsWith("uru_ore");
+	}
+
+	public static boolean isUruMaterial(ItemStack stack) {
+		if (stack.isEmpty()) return false;
+		Identifier id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+		if (!MOD_ID.equals(id.getNamespace())) return false;
+		String p = id.getPath();
+		return p.equals("uru_ingot") || p.equals("raw_uru") || p.endsWith("uru_ore") || p.equals("uru");
+	}
+
+	public static boolean isUruIngot(ItemStack stack) {
+		if (stack.isEmpty()) return false;
+		Identifier id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+		return MOD_ID.equals(id.getNamespace()) && (id.getPath().equals("uru_ingot") || id.getPath().equals("uru"));
+	}
+
+	public static net.minecraft.world.item.Item item(String path) {
+		return BuiltInRegistries.ITEM.getValue(Identifier.fromNamespaceAndPath(MOD_ID, path));
 	}
 
 	private InfinityCompat() {}

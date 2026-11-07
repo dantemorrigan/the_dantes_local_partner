@@ -17,6 +17,12 @@ public enum PartnerOrder {
 	PATROL("patrol", true),
 	/** Free: play on its own (gather, craft, upgrade gear, hunt) while staying near the owner. */
 	FREE("free", true),
+	/** Expedition: long-range journey (up to 2500 blocks), map scouting, dungeons, trading, self-unstuck & SOS. */
+	EXPEDITION("expedition", true),
+	/** Build: analyze and complete the player's house, or build a cozy home from scratch. */
+	BUILD("build", true),
+	/** Farm: till soil, plant and harvest crops, lure/breed/shear livestock, tame wolves and cats. */
+	FARM("farm", true),
 	/** Internal: come and hand over the haul, then follow again. */
 	GIVE("give", false);
 
@@ -34,7 +40,7 @@ public enum PartnerOrder {
 
 	/** Orders tied to a fixed spot instead of the owner. */
 	public boolean anchored() {
-		return this == PATROL;
+		return this == PATROL || this == BUILD || this == FARM;
 	}
 
 	public static PartnerOrder byId(String id) {

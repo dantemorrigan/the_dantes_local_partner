@@ -20,10 +20,11 @@ import org.lwjgl.glfw.GLFW;
  * LMB/Enter confirms, Esc or C closes without a choice. Does not pause the game.
  */
 public final class CommandWheelScreen extends Screen {
-	private static final String[] IDS = {"follow", "wood", "ore", "guard", "patrol", "free"};
+	private static final String[] IDS = {"follow", "wood", "ore", "guard", "patrol", "free", "expedition", "build", "farm"};
+	private static final String[] ICON_NAMES = {"follow", "wood", "ore", "guard", "patrol", "free", "free", "wood", "assist"};
 	private static final int[] ANGLES = {-90, -30, 30, 90, 150, 210};
 	private static final int[][] ICON = {{112, 34}, {180, 73}, {180, 151}, {112, 190}, {44, 151}, {44, 73}};
-	private static final int[] ACCENT = {0xFF92F0BD, 0xFFF2BB84, 0xFFA2DFED, 0xFFF4A594, 0xFFC2C8FF, 0xFFE0EABA};
+	private static final int[] ACCENT = {0xFF92F0BD, 0xFFF2BB84, 0xFFA2DFED, 0xFFF4A594, 0xFFC2C8FF, 0xFFE0EABA, 0xFF77E6D8, 0xFFFFC978, 0xFFA6F08A};
 	private static final int SIZE = 224, INNER = 49, OUTER = 107;
 
 	private int focus = -1;
@@ -89,7 +90,21 @@ public final class CommandWheelScreen extends Screen {
 		return ClientState.present();
 	}
 
+	private int extraButtonAt(double mx, double my) {
+		int barY = height - 54;
+		int btnW = 84, btnH = 20, gap = 6;
+		int totalW = 3 * btnW + 2 * gap;
+		int startX = (width - totalW) / 2;
+		for (int i = 0; i < 3; i++) {
+			int bx = startX + i * (btnW + gap);
+			if (Ui.inside(mx, my, bx, barY, btnW, btnH)) return 6 + i;
+		}
+		return -1;
+	}
+
 	private int sectorAt(double mx, double my) {
+		int extra = extraButtonAt(mx, my);
+		if (extra >= 0) return extra;
 		float s = scale();
 		double dx = (mx - cx()) / s, dy = (my - cy()) / s;
 		double r = Math.hypot(dx, dy);
@@ -133,11 +148,22 @@ public final class CommandWheelScreen extends Screen {
 		Ui.tex(g, "wheel/hub", x0, y0, SIZE * s, SIZE * s, SIZE, SIZE);
 		float iconSize = 16 * s * 1.25f;
 		for (int i = 0; i < 6; i++) {
-			Ui.icon(g, IDS[i], x0 + ICON[i][0] * s - iconSize / 2, y0 + ICON[i][1] * s - iconSize / 2, iconSize);
+			Ui.icon(g, ICON_NAMES[i], x0 + ICON[i][0] * s - iconSize / 2, y0 + ICON[i][1] * s - iconSize / 2, iconSize);
 		}
 		Ui.icon(g, "partner", x0 + 112 * s - iconSize / 2, y0 + 101 * s - iconSize / 2, iconSize);
 		Ui.fitText(g, Component.translatable("local_partner.wheel.title").withStyle(ChatFormatting.BOLD),
 				(int) (x0 + 112 * s), (int) (y0 + 124 * s) - 4, (int) (80 * s), Ui.ACCENT, true);
+
+		// Live Tactical Map / Radar on the left side of the wheel when present.
+		if (!compact() && ClientState.present()) {
+			int mapCardW = 104, mapCardH = 122;
+			int mapCardX = Math.max(6, (int) (x0 - mapCardW - 10));
+			int mapCardY = (int) (cy() - mapCardH / 2f);
+			Ui.frame(g, "panel", mapCardX, mapCardY, mapCardW, mapCardH);
+			Ui.fitText(g, Component.translatable("local_partner.map.title").withStyle(ChatFormatting.BOLD),
+					mapCardX + mapCardW / 2, mapCardY + 7, mapCardW - 12, Ui.ACCENT, true);
+			Ui.renderRadar(g, mapCardX + 12, mapCardY + 20, 80, true);
+		}
 
 		// Description card: right of the wheel, or under it on narrow screens.
 		int cardW = cardW(), cardH = cardH();
@@ -154,10 +180,24 @@ public final class CommandWheelScreen extends Screen {
 			Ui.fitText(g, Component.translatable("local_partner.wheel.unavailable"), cardX + 23, cardY + 9, cardW - 30, Ui.ALERT, false);
 			g.textWithWordWrap(font, description(), cardX + 7, cardY + 25, cardW - 14, Ui.MUTED, false);
 		} else {
-			Ui.icon(g, IDS[focus], cardX + 7, cardY + 7, 12);
+			Ui.icon(g, ICON_NAMES[focus], cardX + 7, cardY + 7, 12);
 			Ui.fitText(g, Component.translatable("local_partner.command." + IDS[focus]).withStyle(ChatFormatting.BOLD),
 					cardX + 23, cardY + 9, cardW - 30, ACCENT[focus], false);
 			g.textWithWordWrap(font, description(), cardX + 7, cardY + 25, cardW - 14, Ui.MUTED, false);
+		}
+
+		// Special Mode Bar (Expedition [1], Build [2], Farm [3]) above the bottom hint bar.
+		int barY = height - 54;
+		int btnW = 84, btnH = 20, gap = 6;
+		int totalW = 3 * btnW + 2 * gap;
+		int startX = (width - totalW) / 2;
+		for (int i = 0; i < 3; i++) {
+			int idx = 6 + i;
+			int bx = startX + i * (btnW + gap);
+			boolean hovered = focus == idx;
+			Ui.Style st = !available(idx) ? Ui.Style.DISABLED : hovered ? Ui.Style.PRIMARY : Ui.Style.NORMAL;
+			Component label = Component.literal("[" + (i + 1) + "] ").append(Component.translatable("local_partner.command." + IDS[idx]));
+			Ui.button(g, label, bx, barY, btnW, btnH, st, hovered);
 		}
 
 		// Controls hint, bottom left.
@@ -206,13 +246,28 @@ public final class CommandWheelScreen extends Screen {
 			confirm();
 			return true;
 		}
+		if (key == GLFW.GLFW_KEY_1 || key == GLFW.GLFW_KEY_KP_1) {
+			focus = 6;
+			confirm();
+			return true;
+		}
+		if (key == GLFW.GLFW_KEY_2 || key == GLFW.GLFW_KEY_KP_2) {
+			focus = 7;
+			confirm();
+			return true;
+		}
+		if (key == GLFW.GLFW_KEY_3 || key == GLFW.GLFW_KEY_KP_3) {
+			focus = 8;
+			confirm();
+			return true;
+		}
 		int step = switch (key) {
 			case GLFW.GLFW_KEY_RIGHT, GLFW.GLFW_KEY_DOWN, GLFW.GLFW_KEY_TAB -> (event.modifiers() & GLFW.GLFW_MOD_SHIFT) != 0 ? -1 : 1;
 			case GLFW.GLFW_KEY_LEFT, GLFW.GLFW_KEY_UP -> -1;
 			default -> 0;
 		};
 		if (step != 0) {
-			focus = focus < 0 ? (step > 0 ? 0 : 5) : Math.floorMod(focus + step, 6);
+			focus = focus < 0 || focus >= 6 ? (step > 0 ? 0 : 5) : Math.floorMod(focus + step, 6);
 			keyboard = true;
 		}
 		return true; // gameplay keys never leak out of the open wheel

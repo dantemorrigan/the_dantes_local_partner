@@ -19,7 +19,7 @@ import org.lwjgl.glfw.GLFW;
  * which asks for confirmation first. Esc in the confirmation goes back to the panel, Esc in the panel back to pause.
  */
 public final class PartnerPanelScreen extends Screen {
-	private static final int W = 252, H = 146;
+	private static final int W = 264, H = 168;
 	private final Screen parent;
 	private boolean confirming;
 	private int x, y;
@@ -45,12 +45,32 @@ public final class PartnerPanelScreen extends Screen {
 	}
 
 	// Button rects: left (Back/Cancel) and right (main action).
-	private int[] left() { return new int[]{x + 18, y + H - 34, 78, 20}; }
-	private int[] right() { return new int[]{x + 102, y + H - 34, W - 120, 20}; }
-	private int[] backpack() { return new int[]{x + 18, y + H - 58, W - 36, 20}; }
+	private int[] left() { return new int[]{x + 18, y + H - 32, 78, 20}; }
+	private int[] right() { return new int[]{x + 102, y + H - 32, W - 120, 20}; }
+	private int[] backpack() { return new int[]{x + 18, y + H - 56, 110, 20}; }
+	private int[] storeBtn() { return new int[]{x + 132, y + H - 56, W - 150, 20}; }
+	private int[] skinPrev() { return new int[]{x + 18, y + 88, 18, 16}; }
+	private int[] skinNext() { return new int[]{x + 150, y + 88, 18, 16}; }
 
 	private boolean backpackShown() {
 		return !confirming && ClientState.state == 1;
+	}
+
+	private com.dantemorrigan.partner.PartnerEntity findClientPartner() {
+		Minecraft mc = Minecraft.getInstance();
+		if (mc.level == null || mc.player == null) return null;
+		com.dantemorrigan.partner.PartnerEntity best = null;
+		double bestD = Double.MAX_VALUE;
+		for (var e : mc.level.entitiesForRendering()) {
+			if (e instanceof com.dantemorrigan.partner.PartnerEntity p) {
+				double d = p.distanceToSqr(mc.player);
+				if (d < bestD) {
+					bestD = d;
+					best = p;
+				}
+			}
+		}
+		return best;
 	}
 
 	@Override
@@ -63,22 +83,43 @@ public final class PartnerPanelScreen extends Screen {
 		g.fill(x + 18, y + 32, x + W - 18, y + 33, Ui.BORDER);
 
 		if (!confirming) {
-			g.text(font, Component.translatable("local_partner.pause.title").withStyle(ChatFormatting.BOLD), x + 18, y + 44, Ui.TEXT, true);
+			g.text(font, Component.translatable("local_partner.pause.title").withStyle(ChatFormatting.BOLD), x + 18, y + 40, Ui.TEXT, true);
 			boolean on = on();
-			g.fill(x + 20, y + 63, x + 24, y + 67, on ? Ui.ACCENT : Ui.MUTED);
+			g.fill(x + 20, y + 57, x + 24, y + 61, on ? Ui.ACCENT : Ui.MUTED);
 			Component status = Component.translatable(on ? "local_partner.pause.on" : "local_partner.pause.off");
 			if (on && ClientState.state == 3) status = Component.translatable("local_partner.pause.respawning");
 			else if (on && ClientState.state == 2) status = Component.translatable("local_partner.pause.waiting");
-			g.text(font, status, x + 30, y + 61, Ui.MUTED, false);
+			g.text(font, status, x + 30, y + 55, Ui.MUTED, false);
+			if (on && ClientState.state == 1) {
+				Component stats = Component.literal("❤ " + (int) Math.ceil(ClientState.health) + " · 🍖 " + ClientState.food + " · ")
+						.append(Component.translatable("partner.local_partner.era." + ClientState.era));
+				Ui.fitText(g, stats, x + 18, y + 67, 152, Ui.HELP, false);
+			}
 			if (on) {
-				g.text(font, Component.translatable("local_partner.pause.hint", PartnerKeys.WHEEL.getTranslatedKeyMessage()), x + 18, y + 74, Ui.MUTED, false);
+				Ui.fitText(g, Component.translatable("local_partner.pause.hint", PartnerKeys.WHEEL.getTranslatedKeyMessage()), x + 18, y + 77, 152, Ui.MUTED, false);
 			}
 			if (!ClientState.modOnServer) {
 				g.textWithWordWrap(font, Component.translatable("local_partner.pause.no_server"), x + 18, y + 78, W - 36, Ui.ALERT, false);
 			}
 			if (backpackShown()) {
-				int[] b = backpack();
+				var entity = findClientPartner();
+				String skinName = entity != null ? com.dantemorrigan.partner.PartnerEntity.SKINS[entity.skin()] : "steve";
+				skinName = Character.toUpperCase(skinName.charAt(0)) + skinName.substring(1);
+				int[] sp = skinPrev(), sn = skinNext();
+				Ui.button(g, Component.literal("◀"), sp[0], sp[1], sp[2], sp[3], Ui.Style.NORMAL, Ui.inside(mx, my, sp[0], sp[1], sp[2], sp[3]));
+				Ui.fitText(g, Component.translatable("local_partner.pause.skin", skinName), x + 93, y + 92, 106, Ui.TEXT, true);
+				Ui.button(g, Component.literal("▶"), sn[0], sn[1], sn[2], sn[3], Ui.Style.NORMAL, Ui.inside(mx, my, sn[0], sn[1], sn[2], sn[3]));
+				int bx1 = x + W - 78, by1 = y + 38, bx2 = x + W - 18, by2 = y + 106;
+				if (entity != null) {
+					g.fill(bx1, by1, bx2, by2, 0x55081210);
+					net.minecraft.client.gui.screens.inventory.InventoryScreen.extractEntityInInventoryFollowsMouse(
+							g, bx1, by1, bx2, by2, 26, 0.0625f, mx, my, entity);
+				} else {
+					Ui.renderRadar(g, bx1, by1, 60, true);
+				}
+				int[] b = backpack(), st = storeBtn();
 				Ui.button(g, Component.translatable("local_partner.pause.backpack"), b[0], b[1], b[2], b[3], Ui.Style.NORMAL, Ui.inside(mx, my, b[0], b[1], b[2], b[3]));
+				Ui.button(g, Component.translatable("local_partner.backpack.store"), st[0], st[1], st[2], st[3], Ui.Style.NORMAL, Ui.inside(mx, my, st[0], st[1], st[2], st[3]));
 			}
 			int[] l = left(), r = right();
 			Ui.button(g, Component.translatable("local_partner.pause.back"), l[0], l[1], l[2], l[3], Ui.Style.NORMAL, Ui.inside(mx, my, l[0], l[1], l[2], l[3]));
@@ -123,11 +164,29 @@ public final class PartnerPanelScreen extends Screen {
 	@Override
 	public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
 		if (event.button() != 0) return super.mouseClicked(event, doubleClick);
-		int[] l = left(), r = right(), b = backpack();
-		if (backpackShown() && Ui.inside(event.x(), event.y(), b[0], b[1], b[2], b[3])) {
-			click();
-			ClientPlayNetworking.send(new PartnerNetwork.Command("inventory"));
-			return true;
+		int[] l = left(), r = right(), b = backpack(), st = storeBtn(), sp = skinPrev(), sn = skinNext();
+		if (backpackShown()) {
+			if (Ui.inside(event.x(), event.y(), b[0], b[1], b[2], b[3])) {
+				click();
+				ClientPlayNetworking.send(new PartnerNetwork.Command("inventory"));
+				return true;
+			}
+			if (Ui.inside(event.x(), event.y(), st[0], st[1], st[2], st[3])) {
+				click();
+				ClientPlayNetworking.send(new PartnerNetwork.Command("store"));
+				Minecraft.getInstance().setScreen(null);
+				return true;
+			}
+			if (Ui.inside(event.x(), event.y(), sp[0], sp[1], sp[2], sp[3])) {
+				click();
+				ClientPlayNetworking.send(new PartnerNetwork.Command("skin_prev"));
+				return true;
+			}
+			if (Ui.inside(event.x(), event.y(), sn[0], sn[1], sn[2], sn[3])) {
+				click();
+				ClientPlayNetworking.send(new PartnerNetwork.Command("skin_next"));
+				return true;
+			}
 		}
 		if (Ui.inside(event.x(), event.y(), l[0], l[1], l[2], l[3])) back();
 		else if (Ui.inside(event.x(), event.y(), r[0], r[1], r[2], r[3])) main();

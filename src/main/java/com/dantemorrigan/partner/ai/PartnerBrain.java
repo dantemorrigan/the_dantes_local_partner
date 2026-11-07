@@ -106,13 +106,20 @@ public final class PartnerBrain {
 				roamStart = p.tickCount;
 				restUntil = 0;
 			}
+			case EXPEDITION -> {
+				job = new ExpeditionJob();
+				roamStart = p.tickCount;
+				restUntil = 0;
+			}
+			case BUILD -> job = new BuildJob();
+			case FARM -> job = new FarmJob();
 			default -> {}
 		}
 		// Called back from far away (roaming): come at once.
 		if ((order == PartnerOrder.FOLLOW || order == PartnerOrder.GUARD) && p.distanceTo(by) > 48 && p.level() == by.level()) {
 			teleportHome(by, "came_on_call");
 		}
-		if (order == PartnerOrder.PATROL && p.anchor() != null) PartnerFx.patrolMark(p, p.anchor());
+		if ((order == PartnerOrder.PATROL || order == PartnerOrder.BUILD || order == PartnerOrder.FARM) && p.anchor() != null) PartnerFx.patrolMark(p, p.anchor());
 		PartnerFx.accepted(p);
 		p.speak("order_" + order.id);
 	}
@@ -151,10 +158,14 @@ public final class PartnerBrain {
 		return recovering() ? ownerLoot.canAddItem(stack) : p.backpack().canAddItem(stack);
 	}
 
-	/** What the partner keeps when handing loot over: its tools, armor, a table, a furnace, torches and some food. */
+	/** What the partner keeps when handing loot over: its tools, armor, a table, a furnace, a bed, torches and some food. */
 	public boolean keepsForItself(ItemStack s, int slot) {
 		if (Gear.isTool(s) || Gear.isArmor(s) || s.is(Items.CRAFTING_TABLE) || s.is(Items.FURNACE)
 				|| s.is(Items.TORCH) || s.is(Items.SHIELD) || s.is(Items.BOW) || s.is(Items.ARROW)) return true;
+		if (s.is(ItemTags.BEDS)) {
+			for (int i = 0; i < slot; i++) if (p.backpack().getItem(i).is(ItemTags.BEDS)) return false;
+			return true;
+		}
 		if (Gear.isFood(s)) {
 			int before = 0;
 			for (int i = 0; i < slot; i++) if (Gear.isFood(p.backpack().getItem(i))) before += p.backpack().getItem(i).getCount();
@@ -225,9 +236,18 @@ public final class PartnerBrain {
 		} else calmTicks += 20;
 	}
 
-	/** Off on its own in free mode, far from the owner: fights only for itself, does not run back to help. */
+	/** Off on its own in free/expedition mode, far from the owner: fights only for itself, does not run back to help. */
 	public boolean roaming(ServerPlayer owner) {
-		return p.order() == PartnerOrder.FREE && horizontalDistSqr(p.position(), owner.position()) > 48 * 48;
+		return (p.order() == PartnerOrder.FREE || p.order() == PartnerOrder.EXPEDITION) && horizontalDistSqr(p.position(), owner.position()) > 48 * 48;
+	}
+
+	public void ignoredEntity(int id, int durationTicks) {
+		ignoredTargets.put(id, p.tickCount + durationTicks);
+	}
+
+	public boolean isIgnoredEntity(int id) {
+		Integer until = ignoredTargets.get(id);
+		return until != null && until > p.tickCount;
 	}
 
 	/** Free mode: time to come back (long trip, full backpack, hurt with nothing to eat). */
@@ -257,6 +277,14 @@ public final class PartnerBrain {
 			teleportHome(owner, burning ? "escaped_fire" : "escaped_void");
 			p.clearFire();
 			return true;
+		}
+		if (p.getAirSupply() < 80) {
+			p.getJumpControl().jump();
+			if (p.getAirSupply() <= 30 && teleportCooldown == 0) {
+				teleportHome(owner, "escaped_water");
+				p.setAirSupply(p.getMaxAirSupply());
+				return true;
+			}
 		}
 		// Nearly dead and the owner is not the one in trouble: back off to the owner and eat.
 		if (p.getHealth() <= 6 && owner.getHealth() > 8 && target != null && retreat == 0) {
@@ -326,7 +354,9 @@ public final class PartnerBrain {
 	private boolean stayTogether(ServerLevel level, ServerPlayer owner) {
 		PartnerOrder order = p.order();
 		double horizontal = Math.sqrt(horizontalDistSqr(p.position(), owner.position()));
-		if (horizontal > (order == PartnerOrder.FREE ? ROAM_RADIUS : FAR_TELEPORT)) {
+		int maxRange = order == PartnerOrder.EXPEDITION ? ExpeditionJob.EXPEDITION_RADIUS
+				: order == PartnerOrder.FREE ? ROAM_RADIUS : FAR_TELEPORT;
+		if (horizontal > maxRange) {
 			// Beyond loaded-chunk comfort for every order: come back, anchored orders end.
 			if (order.anchored()) {
 				p.setOrderQuiet(PartnerOrder.FOLLOW);
@@ -336,7 +366,9 @@ public final class PartnerBrain {
 			teleportHome(owner, null);
 			return true;
 		}
-		boolean working = job != null && !(job instanceof GiveJob) && order != PartnerOrder.FREE;
+		boolean working = job != null && !(job instanceof GiveJob)
+				&& order != PartnerOrder.FREE && order != PartnerOrder.EXPEDITION
+				&& order != PartnerOrder.BUILD && order != PartnerOrder.FARM;
 		if (working && horizontal > WORK_LEASH) {
 			// Too far from the owner to keep working: walk back (teleport if that does not work).
 			p.setActivity("returning");
@@ -477,6 +509,7 @@ public final class PartnerBrain {
 			shoot(level, t, distSqr);
 			return;
 		}
+		if (bowCharge > 0 && p.isUsingItem() && Gear.isBow(p.getUseItem())) p.stopUsingItem();
 		bowCharge = 0;
 		if (p.tickCount % 10 == 0 || p.getMainHandItem().isEmpty() || Gear.isBow(p.getMainHandItem())) Gear.holdWeapon(p);
 		if (distSqr > reachSqr * 0.6 || --repath <= 0) {
@@ -512,11 +545,16 @@ public final class PartnerBrain {
 	private void shoot(ServerLevel level, LivingEntity t, double distSqr) {
 		raiseShield(false);
 		if (!Gear.isBow(p.getMainHandItem())) Gear.hold(p, s -> Gear.isBow(s) ? 10 : 0);
+		if (!p.isUsingItem() && Gear.isBow(p.getMainHandItem())) p.startUsingItem(InteractionHand.MAIN_HAND);
 		if (distSqr > 18 * 18) {
 			if (p.tickCount % 10 == 0) p.getNavigation().moveTo(t, PartnerEntity.WALK);
-		} else p.getNavigation().stop();
+		} else {
+			p.getNavigation().stop();
+			p.getMoveControl().strafe(distSqr < 8 * 8 ? -0.35f : 0f, (p.tickCount / 40) % 2 == 0 ? 0.35f : -0.35f);
+		}
 		if (++bowCharge < 20 || !p.hasLineOfSight(t)) return;
 		bowCharge = 0;
+		if (p.isUsingItem()) p.stopUsingItem();
 		ItemStack bow = p.getMainHandItem();
 		if (Gear.take(p.backpack(), s -> s.is(Items.ARROW), 1) == 0) return;
 		var arrow = net.minecraft.world.entity.projectile.ProjectileUtil.getMobArrow(p, new ItemStack(Items.ARROW), 1.0f, bow);
@@ -614,8 +652,8 @@ public final class PartnerBrain {
 				say("coming");
 			}
 		}
-		// Free mode: tired → head home (or teleport to the owner), hand over the haul, rest, then off again.
-		if (order == PartnerOrder.FREE && !(job instanceof ReturnJob) && !(job instanceof GiveJob) && p.tickCount % 20 == 0 && tired()) {
+		// Free / Expedition mode: tired → head home (or teleport to the owner), hand over the haul, rest, then off again.
+		if ((order == PartnerOrder.FREE || order == PartnerOrder.EXPEDITION) && !(job instanceof ReturnJob) && !(job instanceof GiveJob) && !(job instanceof StoreJob) && p.tickCount % 20 == 0 && tired()) {
 			stopJob(level);
 			say("tired");
 			job = new ReturnJob();
@@ -632,27 +670,33 @@ public final class PartnerBrain {
 			stopJob(level);
 			if (wasSelf && order == PartnerOrder.FOLLOW) return;
 			if (order.oneShot() || order == PartnerOrder.WOOD || order == PartnerOrder.ORE) {
-				if (status == Job.Status.DONE && !(finished instanceof GiveJob)) {
+				if (status == Job.Status.DONE && !(finished instanceof GiveJob) && !(finished instanceof StoreJob)) {
 					job = new GiveJob(true); // bring the haul back
 					return;
 				}
 				p.setOrderQuiet(PartnerOrder.FOLLOW);
-			} else if (order == PartnerOrder.FREE) {
+			} else if (order == PartnerOrder.FREE || order == PartnerOrder.EXPEDITION) {
 				if (finished instanceof ReturnJob) {
-					job = new GiveJob(true);
+					job = StoreJob.findChest(level, p.blockPosition(), 20) != null ? new StoreJob(true) : new GiveJob(true);
 					restUntil = p.tickCount + 20 * 120;
-				} else if (finished instanceof GiveJob && restUntil > p.tickCount) {
+				} else if ((finished instanceof GiveJob || finished instanceof StoreJob) && restUntil > p.tickCount) {
 					say("resting");
 				} else {
-					job = new AutoJob();
+					job = order == PartnerOrder.EXPEDITION ? new ExpeditionJob() : new AutoJob();
 				}
+			} else if (order == PartnerOrder.BUILD) {
+				p.setOrderQuiet(PartnerOrder.FOLLOW);
+			} else if (order == PartnerOrder.FARM) {
+				job = new FarmJob();
 			}
 			return;
 		}
 		switch (order) {
 			case PATROL -> patrol(level, owner);
 			case GUARD -> follow(owner, 1.5, 3.0, "guard");
-			case FREE -> {
+			case BUILD -> job = new BuildJob();
+			case FARM -> job = new FarmJob();
+			case FREE, EXPEDITION -> {
 				if (restUntil > p.tickCount) {
 					follow(owner, 2.5, 5.0, "resting");
 				} else {
@@ -662,7 +706,7 @@ public final class PartnerBrain {
 						say("rested");
 					}
 					if (roamStart < 0) roamStart = p.tickCount;
-					job = new AutoJob();
+					job = order == PartnerOrder.EXPEDITION ? new ExpeditionJob() : new AutoJob();
 				}
 			}
 			case WOOD, ORE, GIVE -> p.setOrderQuiet(PartnerOrder.FOLLOW);
@@ -839,12 +883,56 @@ public final class PartnerBrain {
 
 	private int bedSearch;
 	private @Nullable BlockPos bed;
+	private @Nullable BlockPos ownBed;
+	private ItemStack ownBedItem = ItemStack.EMPTY;
 
-	/** The owner went to bed: find a free bed nearby (or lie down on the ground next to them) and sleep too. */
+	/** Stores non-gear resources into a nearby chest (or tells the owner if there is none). */
+	public void storeInChest() {
+		if (!(p.level() instanceof ServerLevel level)) return;
+		stopJob(level);
+		job = new StoreJob(false);
+	}
+
+	/** Places a lit campfire next to the owner or partner for the night. */
+	public void makeCampfire(ServerPlayer owner) {
+		if (!(p.level() instanceof ServerLevel level)) return;
+		for (BlockPos pos : BlockPos.betweenClosed(p.blockPosition().offset(-6, -2, -6), p.blockPosition().offset(6, 2, 6))) {
+			if (level.getBlockState(pos).is(net.minecraft.world.level.block.Blocks.CAMPFIRE)) {
+				p.speak("campfire_already");
+				return;
+			}
+		}
+		if (Gear.count(p.backpack(), Items.CAMPFIRE) == 0 && !Crafting.craft(p, Items.CAMPFIRE)) {
+			// Try making one on the spot if it has coal/charcoal and logs/planks, else place a basic campfire from wood.
+			if (Gear.take(p.backpack(), s -> s.is(ItemTags.LOGS) || s.is(ItemTags.PLANKS), 2) == 0) {
+				p.speak("campfire_need_wood");
+				return;
+			}
+		} else {
+			Gear.take(p.backpack(), s -> s.is(Items.CAMPFIRE), 1);
+		}
+		BlockPos center = p.distanceTo(owner) < 8 ? owner.blockPosition() : p.blockPosition();
+		for (net.minecraft.core.Direction d : net.minecraft.core.Direction.Plane.HORIZONTAL) {
+			for (int dist = 2; dist <= 3; dist++) {
+				for (int dy : new int[]{0, -1, 1}) {
+					BlockPos pos = center.relative(d, dist).above(dy);
+					if (!level.getBlockState(pos).canBeReplaced() || !level.getFluidState(pos).isEmpty()) continue;
+					if (!level.getBlockState(pos.below()).isFaceSturdy(level, pos.below(), net.minecraft.core.Direction.UP)) continue;
+					level.setBlockAndUpdate(pos, net.minecraft.world.level.block.Blocks.CAMPFIRE.defaultBlockState());
+					level.playSound(null, pos, net.minecraft.sounds.SoundEvents.FLINTANDSTEEL_USE, net.minecraft.sounds.SoundSource.BLOCKS, 0.8f, 1.0f);
+					p.swing(InteractionHand.MAIN_HAND);
+					p.speak("campfire_placed");
+					return;
+				}
+			}
+		}
+	}
+
+	/** The owner went to bed: find a free bed nearby, place the partner's own bed from its backpack, or lie down next to them. */
 	private boolean sleep(ServerLevel level, ServerPlayer owner) {
 		boolean ownerSleeps = owner.isSleeping() && p.distanceTo(owner) < 40 && !inFight();
 		if (!ownerSleeps) {
-			if (sleeping) wakeUp();
+			if (sleeping || ownBed != null) wakeUp();
 			return false;
 		}
 		p.setActivity("sleep");
@@ -854,6 +942,7 @@ public final class PartnerBrain {
 		if (bed == null && bedSearch-- <= 0) {
 			bedSearch = 40;
 			bed = findBed(level);
+			if (bed == null) bed = placeOwnBed(level, owner);
 		}
 		if (bed != null) {
 			if (!level.getBlockState(bed).is(net.minecraft.tags.BlockTags.BEDS) || level.getBlockState(bed).getValue(net.minecraft.world.level.block.BedBlock.OCCUPIED)) {
@@ -881,10 +970,72 @@ public final class PartnerBrain {
 		return true;
 	}
 
+	private @Nullable BlockPos placeOwnBed(ServerLevel level, ServerPlayer owner) {
+		int bedSlot = slotOf(s -> s.is(ItemTags.BEDS) && s.getItem() instanceof net.minecraft.world.item.BlockItem);
+		if (bedSlot < 0 && Crafting.canMake(p, Items.WHITE_BED) && Crafting.tableNearby(p)) {
+			Crafting.craft(p, Items.WHITE_BED);
+			bedSlot = slotOf(s -> s.is(ItemTags.BEDS) && s.getItem() instanceof net.minecraft.world.item.BlockItem);
+		}
+		if (bedSlot < 0) return null;
+		BlockPos center = p.distanceTo(owner) < 12 ? owner.blockPosition() : p.blockPosition();
+		for (int r = 1; r <= 4; r++) {
+			for (int dx = -r; dx <= r; dx++) {
+				for (int dz = -r; dz <= r; dz++) {
+					for (int dy : new int[]{0, -1, 1}) {
+						BlockPos foot = center.offset(dx, dy, dz);
+						for (net.minecraft.core.Direction dir : net.minecraft.core.Direction.Plane.HORIZONTAL) {
+							BlockPos head = foot.relative(dir);
+							if (!canPlaceBedAt(level, foot) || !canPlaceBedAt(level, head)) continue;
+							ItemStack stack = p.backpack().removeItem(bedSlot, 1);
+							net.minecraft.world.level.block.Block bedBlock = ((net.minecraft.world.item.BlockItem) stack.getItem()).getBlock();
+							var footState = bedBlock.defaultBlockState()
+									.setValue(net.minecraft.world.level.block.BedBlock.FACING, dir)
+									.setValue(net.minecraft.world.level.block.BedBlock.PART, net.minecraft.world.level.block.state.properties.BedPart.FOOT);
+							var headState = footState.setValue(net.minecraft.world.level.block.BedBlock.PART, net.minecraft.world.level.block.state.properties.BedPart.HEAD);
+							level.setBlock(foot, footState, 3);
+							level.setBlock(head, headState, 3);
+							level.playSound(null, head, net.minecraft.sounds.SoundEvents.WOOD_PLACE, net.minecraft.sounds.SoundSource.BLOCKS, 0.8f, 1.0f);
+							ownBed = head.immutable();
+							ownBedItem = stack;
+							return ownBed;
+						}
+					}
+				}
+			}
+		}
+		return null;
+	}
+
+	private boolean canPlaceBedAt(ServerLevel level, BlockPos pos) {
+		return level.getBlockState(pos).canBeReplaced() && level.getFluidState(pos).isEmpty()
+				&& level.getBlockState(pos.below()).isFaceSturdy(level, pos.below(), net.minecraft.core.Direction.UP)
+				&& level.getEntities(null, new AABB(pos)).isEmpty() && level.mayInteract(p, pos);
+	}
+
+	private void packOwnBed(ServerLevel level) {
+		if (ownBed == null) return;
+		var st = level.getBlockState(ownBed);
+		if (st.is(net.minecraft.tags.BlockTags.BEDS)) {
+			net.minecraft.core.Direction facing = st.getValue(net.minecraft.world.level.block.BedBlock.FACING);
+			BlockPos foot = ownBed.relative(facing.getOpposite());
+			if (level.getBlockState(foot).is(net.minecraft.tags.BlockTags.BEDS)) {
+				level.setBlock(foot, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), 35);
+			}
+			level.setBlock(ownBed, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), 35);
+		}
+		if (!ownBedItem.isEmpty()) {
+			ItemStack rest = p.backpack().addItem(ownBedItem);
+			if (!rest.isEmpty()) p.spawnAtLocation(level, rest);
+			ownBedItem = ItemStack.EMPTY;
+		}
+		ownBed = null;
+	}
+
 	private void wakeUp() {
 		sleeping = false;
 		bed = null;
 		if (p.isSleeping()) p.stopSleeping();
+		if (p.level() instanceof ServerLevel level) packOwnBed(level);
 		p.setPose(net.minecraft.world.entity.Pose.STANDING);
 		p.speak("good_morning");
 	}
@@ -909,9 +1060,17 @@ public final class PartnerBrain {
 		return sleeping;
 	}
 
-	/** Winds up the current job cleanly (before the partner is saved or moved): cracks cleared, a placed table taken back. */
+	/** Winds up the current job cleanly (before the partner is saved or moved): cracks cleared, a placed table or bed taken back. */
 	public void suspend() {
-		if (p.level() instanceof ServerLevel level) stopJob(level);
+		if (p.level() instanceof ServerLevel level) {
+			stopJob(level);
+			if (sleeping || ownBed != null) {
+				sleeping = false;
+				bed = null;
+				if (p.isSleeping()) p.stopSleeping();
+				packOwnBed(level);
+			}
+		}
 		parkour.cancel();
 	}
 
@@ -980,6 +1139,106 @@ public final class PartnerBrain {
 		if (chatterCooldown > 0 && !key.startsWith("done")) return;
 		chatterCooldown = 60;
 		p.speak(key, args);
+	}
+
+	private final java.util.ArrayList<String> pois = new java.util.ArrayList<>();
+	private int lastEmergencyTick = -9999;
+
+	/** Records a discovered landmark (dungeon, village/trader, biome) for the live tactical map and reports it. */
+	public void recordPoi(String kind, BlockPos pos, String label) {
+		char code = switch (kind) {
+			case "dungeon" -> 'D';
+			case "village" -> 'V';
+			default -> 'B';
+		};
+		String entry = code + ":" + pos.getX() + "," + pos.getY() + "," + pos.getZ();
+		for (String existing : pois) {
+			if (existing.equals(entry)) return;
+		}
+		if (pois.size() >= 10) pois.removeFirst();
+		pois.add(entry);
+		if (kind.equals("dungeon")) {
+			report("poi_dungeon", pos.getX(), pos.getY(), pos.getZ());
+		} else if (kind.equals("village")) {
+			report("poi_village", pos.getX(), pos.getY(), pos.getZ());
+		} else if (kind.equals("biome")) {
+			report("poi_biome", label, pos.getX(), pos.getZ());
+		}
+	}
+
+	public String poisSummary(ServerPlayer owner) {
+		StringBuilder sb = new StringBuilder();
+		var resp = owner.getRespawnConfig();
+		if (resp != null && resp.respawnData().dimension().equals(owner.level().dimension())) {
+			BlockPos h = resp.respawnData().pos();
+			sb.append("H:").append(h.getX()).append(",").append(h.getY()).append(",").append(h.getZ());
+		}
+		for (String e : pois) {
+			if (!sb.isEmpty()) sb.append(";");
+			sb.append(e);
+		}
+		return sb.toString();
+	}
+
+	/** Makes the partner head back to the home base (bed) or owner and store its haul. */
+	public void returnToBase(ServerPlayer owner) {
+		if (!(p.level() instanceof ServerLevel level)) return;
+		stopJob(level);
+		p.setOrderQuiet(PartnerOrder.FREE);
+		restUntil = p.tickCount + 20 * 120;
+		job = new ReturnJob();
+		say("returning_base");
+	}
+
+	/**
+	 * Extreme unstuck / SOS handler: called when active self-rescue (pillaring, digging, bridging) could not free the partner.
+	 * Tries a surface escape first; if still trapped or hurt, sends an SOS with clickable action buttons and evacuates to base or owner.
+	 */
+	public void emergencyUnstuck(ServerLevel level) {
+		ServerPlayer owner = p.getOwnerPlayer();
+		if (owner == null) return;
+		boolean repeated = p.tickCount - lastEmergencyTick < 20 * 60;
+		lastEmergencyTick = p.tickCount;
+
+		// 1. Try escaping to a clean surface block nearby if not critically hurt and not a repeated trap.
+		if (!repeated && p.getHealth() > 8) {
+			for (int tries = 0; tries < 8; tries++) {
+				int dx = p.getRandom().nextInt(17) - 8;
+				int dz = p.getRandom().nextInt(17) - 8;
+				if (Math.abs(dx) < 4 && Math.abs(dz) < 4) continue;
+				BlockPos top = level.getHeightmapPos(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, p.blockPosition().offset(dx, 0, dz));
+				if (level.getFluidState(top).isEmpty() && level.getFluidState(top.below()).isEmpty() && Parkour.passable(level, top)) {
+					p.snapTo(top.getX() + 0.5, top.getY(), top.getZ() + 0.5, p.getYRot(), p.getXRot());
+					p.getNavigation().stop();
+					p.resetFallDistance();
+					report("self_unstuck_surface", top.getX(), top.getY(), top.getZ());
+					return;
+				}
+			}
+		}
+
+		// 2. Extreme situation: send SOS with coordinates and clickable buttons ([Ко мне] / [На базу]), and evacuate!
+		BlockPos pos = p.blockPosition();
+		com.dantemorrigan.partner.PartnerChat.ask(owner, p,
+				Component.translatable("partner.local_partner.ask_sos", pos.getX(), pos.getY(), pos.getZ()),
+				java.util.List.of(
+						com.dantemorrigan.partner.PartnerChat.button(
+								Component.translatable("partner.local_partner.btn.sos_tp"),
+								"/partner order follow",
+								Component.translatable("partner.local_partner.btn.sos_tp.hover"),
+								com.dantemorrigan.partner.PartnerChat.FOLLOW),
+						com.dantemorrigan.partner.PartnerChat.button(
+								Component.translatable("partner.local_partner.btn.sos_base"),
+								"/partner home",
+								Component.translatable("partner.local_partner.btn.sos_base.hover"),
+								com.dantemorrigan.partner.PartnerChat.FREE)
+				));
+		if (p.getHealth() <= 8 || repeated) {
+			stopJob(level);
+			teleportHome(owner, "sos_evacuated");
+		} else {
+			returnToBase(owner);
+		}
 	}
 
 	public void reportStatus(ServerPlayer player) {

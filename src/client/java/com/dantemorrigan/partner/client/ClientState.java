@@ -17,6 +17,8 @@ public final class ClientState {
 	public static int era;
 	public static float health;
 	public static int food;
+	public static int px, py, pz;
+	public static String pois = "";
 	public static boolean modOnServer;
 
 	/** Toasts by priority (highest first), per the design pack; everything else shows the current task. */
@@ -35,12 +37,17 @@ public final class ClientState {
 			era = s.era();
 			health = s.health();
 			food = s.food();
+			px = s.px();
+			py = s.py();
+			pz = s.pz();
+			pois = s.pois();
 		});
 		ClientPlayNetworking.registerGlobalReceiver(PartnerNetwork.Toast.TYPE, (t, ctx) -> toast(t.key()));
 		ClientPlayConnectionEvents.JOIN.register((h, sender, mc) -> modOnServer = ClientPlayNetworking.canSend(PartnerNetwork.Toggle.TYPE));
 		ClientPlayConnectionEvents.DISCONNECT.register((h, mc) -> {
 			state = 0;
-			order = activity = toast = "";
+			order = activity = toast = pois = "";
+			px = py = pz = 0;
 			modOnServer = false;
 		});
 	}

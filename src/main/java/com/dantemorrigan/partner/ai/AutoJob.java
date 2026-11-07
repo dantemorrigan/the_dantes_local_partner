@@ -94,12 +94,27 @@ public final class AutoJob implements Job {
 		if (wood < 16 && start(brain, "wood", new ChopJob(tier == 0 ? 6 : 8))) return true;
 		if ((tier < 2 || !furnace) && cobble < 11 && start(brain, "stone", new MineJob(WorldScan.OreKind.STONE, 11 - cobble))) return true;
 		if (tier >= 2 && !fuel && furnace && start(brain, "coal", new MineJob(WorldScan.OreKind.COAL, 8))) return true;
+		if (p.level() instanceof ServerLevel sl && (furnace || SmeltJob.findFurnace(p, 12) != null) && fuel
+				&& (Gear.count(c, Items.RAW_IRON) > 0 || Gear.count(c, Items.RAW_GOLD) > 0 || Gear.count(c, Items.ANCIENT_DEBRIS) > 0
+				|| Smelter.countSmeltable(c, sl) >= 4) && start(brain, "smelt", new SmeltJob())) return true;
 		int ironWanted = ironWanted(p);
 		if (tier >= 2 && iron < ironWanted && start(brain, "iron", new MineJob(WorldScan.OreKind.IRON, Math.min(12, ironWanted - iron)))) return true;
 		if (Gear.count(c, Items.RAW_IRON) > 0 && furnace) return false; // smelting: wait with the owner
 		int diamondsWanted = diamondsWanted(p);
 		if (tier >= 3 && Gear.count(c, Items.DIAMOND) < diamondsWanted
 				&& start(brain, "diamond", new MineJob(WorldScan.OreKind.DIAMOND, Math.min(5, diamondsWanted - Gear.count(c, Items.DIAMOND))))) return true;
+		boolean inNether = p.level().dimension() == net.minecraft.world.level.Level.NETHER;
+		if (inNether && !Gear.wearsGoldArmor(p) && Gear.count(c, Items.GOLD_INGOT) + Gear.count(c, Items.RAW_GOLD) < 4
+				&& tier >= 3 && start(brain, "gold", new MineJob(WorldScan.OreKind.GOLD, 4))) return true;
+		if (tier >= 4 && inNether && netheriteWanted(p) > 0) {
+			int scrap = Gear.count(c, Items.NETHERITE_SCRAP) + Gear.count(c, Items.ANCIENT_DEBRIS) + Gear.count(c, Items.NETHERITE_INGOT) * 4;
+			if (scrap < 4 && start(brain, "netherite", new MineJob(WorldScan.OreKind.NETHERITE, 4 - scrap))) return true;
+			int gold = Gear.count(c, Items.GOLD_INGOT) + Gear.count(c, Items.RAW_GOLD);
+			if (gold < 4 && start(brain, "gold", new MineJob(WorldScan.OreKind.GOLD, 4 - gold))) return true;
+		}
+		if (tier >= 4 && com.dantemorrigan.partner.compat.InfinityCompat.LOADED
+				&& Gear.count(c, com.dantemorrigan.partner.compat.InfinityCompat::isUruMaterial) < 8
+				&& start(brain, "uru", new MineJob(WorldScan.OreKind.URU, 4))) return dryRun || block(brain, "uru", 6);
 		// Beyond the gear: keep stocks up and keep prospecting (each at most every few minutes).
 		if (tier >= 2 && Gear.foodPoints(c) < 40 && start(brain, "stock_food", new HuntJob(48))) return dryRun || block(brain, "stock_food", 5);
 		if (tier >= 2 && Gear.count(c, Items.TORCH) < 16 && Gear.count(c, s -> s.is(ItemTags.COALS)) < 4
@@ -151,6 +166,18 @@ public final class AutoJob implements Job {
 		return n;
 	}
 
+	private static int netheriteWanted(PartnerEntity p) {
+		int n = 0;
+		if (Gear.pickTierOf(p) < 5) n++;
+		if (!hasAtLeast(p, Items.NETHERITE_SWORD)) n++;
+		for (Item piece : new Item[]{Items.NETHERITE_CHESTPLATE, Items.NETHERITE_LEGGINGS, Items.NETHERITE_HELMET, Items.NETHERITE_BOOTS}) {
+			ItemStack sample = new ItemStack(piece);
+			var slot = sample.get(net.minecraft.core.component.DataComponents.EQUIPPABLE).slot();
+			if (Gear.armorValue(p.getItemBySlot(slot)) < Gear.armorValue(sample)) n++;
+		}
+		return n;
+	}
+
 	/** Material needed for armor pieces below the given tier (3 iron, 4 diamond). */
 	private static int missingArmor(PartnerEntity p, int tier) {
 		int[] cost = {5, 8, 7, 4};
@@ -178,16 +205,21 @@ public final class AutoJob implements Job {
 		PartnerEntity p = brain.p;
 		var c = p.backpack();
 		java.util.List<Item> out = new java.util.ArrayList<>();
+		if (Crafting.canMake(p, Items.NETHERITE_INGOT)) out.add(Items.NETHERITE_INGOT);
 		int tier = Gear.pickTierOf(p);
-		Item[] picks = {Items.DIAMOND_PICKAXE, Items.IRON_PICKAXE, Items.STONE_PICKAXE, Items.WOODEN_PICKAXE};
+		Item uruPick = com.dantemorrigan.partner.compat.InfinityCompat.item("uru_pickaxe");
+		if (uruPick != Items.AIR && !Gear.has(p, s -> s.is(uruPick)) && Crafting.canMake(p, uruPick)) out.add(uruPick);
+		Item[] picks = {Items.NETHERITE_PICKAXE, Items.DIAMOND_PICKAXE, Items.IRON_PICKAXE, Items.STONE_PICKAXE, Items.WOODEN_PICKAXE};
 		for (int i = 0; i < picks.length; i++) {
-			if (tier >= 4 - i) break;
+			if (tier >= 5 - i) break;
 			if (Crafting.canMake(p, picks[i])) {
 				out.add(picks[i]);
 				break;
 			}
 		}
-		for (Item sword : new Item[]{Items.DIAMOND_SWORD, Items.IRON_SWORD, Items.STONE_SWORD, Items.WOODEN_SWORD}) {
+		Item uruSword = com.dantemorrigan.partner.compat.InfinityCompat.item("uru_sword");
+		if (uruSword != Items.AIR && !Gear.has(p, s -> s.is(uruSword)) && Crafting.canMake(p, uruSword)) out.add(uruSword);
+		for (Item sword : new Item[]{Items.NETHERITE_SWORD, Items.DIAMOND_SWORD, Items.IRON_SWORD, Items.STONE_SWORD, Items.WOODEN_SWORD}) {
 			if (hasAtLeast(p, sword)) break;
 			if (Crafting.canMake(p, sword)) {
 				out.add(sword);
@@ -195,14 +227,26 @@ public final class AutoJob implements Job {
 			}
 		}
 		if (Gear.count(c, Items.FURNACE) == 0 && Gear.count(c, s -> s.is(ItemTags.STONE_TOOL_MATERIALS)) >= 8) out.add(Items.FURNACE);
+		if (com.dantemorrigan.partner.compat.InfinityCompat.LOADED) {
+			for (String id : new String[]{"uru_chestplate", "uru_leggings", "uru_helmet", "uru_boots"}) {
+				Item piece = com.dantemorrigan.partner.compat.InfinityCompat.item(id);
+				if (piece != Items.AIR) armor(p, out, new Item[]{piece});
+			}
+		}
+		armor(p, out, new Item[]{Items.NETHERITE_CHESTPLATE, Items.NETHERITE_LEGGINGS, Items.NETHERITE_HELMET, Items.NETHERITE_BOOTS});
 		armor(p, out, new Item[]{Items.DIAMOND_CHESTPLATE, Items.DIAMOND_LEGGINGS, Items.DIAMOND_HELMET, Items.DIAMOND_BOOTS});
 		armor(p, out, new Item[]{Items.IRON_CHESTPLATE, Items.IRON_LEGGINGS, Items.IRON_HELMET, Items.IRON_BOOTS});
+		if (p.level().dimension() == net.minecraft.world.level.Level.NETHER && !Gear.wearsGoldArmor(p) && !Gear.has(p, Gear::isGoldArmor)
+				&& Crafting.canMake(p, Items.GOLDEN_BOOTS)) {
+			out.add(Items.GOLDEN_BOOTS);
+		}
 		if (!Gear.has(p, Gear::isShield) && Gear.count(c, Items.IRON_INGOT) > ironWanted(p) && Crafting.canMake(p, Items.SHIELD)) out.add(Items.SHIELD);
 		if (!Gear.has(p, Gear::isBow) && Crafting.canMake(p, Items.BOW)) out.add(Items.BOW);
 		if (Gear.has(p, Gear::isBow) && Gear.arrows(p) < 32 && Crafting.canMake(p, Items.ARROW)) {
 			out.add(Items.ARROW);
 			out.add(Items.ARROW);
 		}
+		if (Gear.count(c, s -> s.is(ItemTags.BEDS)) == 0 && Crafting.canMake(p, Items.WHITE_BED)) out.add(Items.WHITE_BED);
 		return out;
 	}
 

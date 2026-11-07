@@ -48,6 +48,8 @@ public final class ReturnJob implements Job {
 				arrived = true;
 				brain.report("home_arrived");
 				p.getNavigation().stop();
+				// If there is a storage chest right here at home, finish at once so the haul goes into the chest.
+				if (StoreJob.findChest(level, home, 16) != null) return Status.DONE;
 			} else if (!travel.tick(brain, level, goal, PartnerEntity.WALK) || ++ticks > 20 * 180) {
 				brain.teleportHome(owner, "tired_teleport");
 				return Status.DONE;

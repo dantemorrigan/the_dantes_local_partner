@@ -74,11 +74,11 @@ public final class Gear {
 		return e != null && e.slot().getType() == EquipmentSlot.Type.HUMANOID_ARMOR;
 	}
 
-	/** 0 none, 1 wood/gold, 2 stone, 3 iron, 4 diamond, 5 netherite (by mining speed on stone). */
+	/** 0 none, 1 wood/gold, 2 stone, 3 iron, 4 diamond, 5 netherite/uru (by mining speed on stone). */
 	public static int pickTier(ItemStack s) {
 		if (!isPickaxe(s)) return 0;
+		if (s.is(Items.GOLDEN_PICKAXE)) return 1; // gold: fast but weak
 		float speed = s.getDestroySpeed(STONE);
-		if (speed >= 12) return 1; // gold: fast but weak
 		if (speed >= 9) return 5;
 		if (speed >= 8) return 4;
 		if (speed >= 6) return 3;
@@ -199,7 +199,18 @@ public final class Gear {
 		return count(p.backpack(), s -> s.is(Items.ARROW));
 	}
 
-	/** Puts on the best armor from the backpack, and a shield in the off hand. */
+	public static boolean isGoldArmor(ItemStack s) {
+		return s.is(Items.GOLDEN_HELMET) || s.is(Items.GOLDEN_CHESTPLATE) || s.is(Items.GOLDEN_LEGGINGS) || s.is(Items.GOLDEN_BOOTS);
+	}
+
+	public static boolean wearsGoldArmor(PartnerEntity p) {
+		for (EquipmentSlot slot : new EquipmentSlot[]{EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET}) {
+			if (isGoldArmor(p.getItemBySlot(slot))) return true;
+		}
+		return false;
+	}
+
+	/** Puts on the best armor from the backpack, and a shield in the off hand. In the Nether, keeps one gold piece against Piglins unless wearing diamond+. */
 	public static void equipArmor(PartnerEntity p) {
 		SimpleContainer c = p.backpack();
 		if (p.getOffhandItem().isEmpty() && !p.isEating()) {
@@ -210,16 +221,40 @@ public final class Gear {
 				}
 			}
 		}
+		boolean nether = p.level().dimension() == net.minecraft.world.level.Level.NETHER;
 		for (int i = 0; i < c.getContainerSize(); i++) {
 			ItemStack s = c.getItem(i);
 			if (!isArmor(s)) continue;
 			EquipmentSlot slot = s.get(DataComponents.EQUIPPABLE).slot();
 			ItemStack worn = p.getItemBySlot(slot);
+			// In the Nether, do not replace the only gold armor piece with iron/chainmail.
+			if (nether && isGoldArmor(worn) && !isGoldArmor(s) && armorValue(s) <= 12 && countGoldWorn(p) <= 1) continue;
 			if (armorValue(s) + enchantBonus(s) <= armorValue(worn) + enchantBonus(worn)) continue;
 			p.setItemSlot(slot, c.removeItemNoUpdate(i));
 			if (!worn.isEmpty()) c.setItem(i, worn);
 		}
+		if (nether && !wearsGoldArmor(p)) {
+			for (int i = 0; i < c.getContainerSize(); i++) {
+				ItemStack s = c.getItem(i);
+				if (!isGoldArmor(s)) continue;
+				EquipmentSlot slot = s.get(DataComponents.EQUIPPABLE).slot();
+				ItemStack worn = p.getItemBySlot(slot);
+				if (armorValue(worn) <= 6) { // swap iron/leather helmet or boots for gold in the Nether
+					p.setItemSlot(slot, c.removeItemNoUpdate(i));
+					if (!worn.isEmpty()) c.setItem(i, worn);
+					break;
+				}
+			}
+		}
 		c.setChanged();
+	}
+
+	private static int countGoldWorn(PartnerEntity p) {
+		int n = 0;
+		for (EquipmentSlot slot : new EquipmentSlot[]{EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET}) {
+			if (isGoldArmor(p.getItemBySlot(slot))) n++;
+		}
+		return n;
 	}
 
 	public static Identifier id(ItemStack s) {

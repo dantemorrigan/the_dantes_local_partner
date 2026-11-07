@@ -29,16 +29,44 @@ public final class PartnerNetwork {
 	}
 
 	/**
-	 * S2C: what the owner's partner is doing, for the pause button, the wheel and the HUD line.
+	 * S2C: what the owner's partner is doing, for the pause button, the wheel, the HUD line and the live tactical map.
 	 * state: 0 none, 1 present, 2 waiting (stashed: owner in a place it cannot follow), 3 dead (respawning).
 	 */
-	public record Status(int state, String order, String activity, String detail, int era, float health, int food) implements CustomPacketPayload {
+	public record Status(int state, String order, String activity, String detail, int era, float health, int food,
+						 int px, int py, int pz, String pois) implements CustomPacketPayload {
+		public Status(int state, String order, String activity, String detail, int era, float health, int food) {
+			this(state, order, activity, detail, era, health, food, 0, 0, 0, "");
+		}
+
 		public static final Type<Status> TYPE = newType("status");
-		public static final StreamCodec<ByteBuf, Status> CODEC = StreamCodec.composite(
-				ByteBufCodecs.VAR_INT, Status::state, ByteBufCodecs.STRING_UTF8, Status::order,
-				ByteBufCodecs.STRING_UTF8, Status::activity, ByteBufCodecs.STRING_UTF8, Status::detail,
-				ByteBufCodecs.VAR_INT, Status::era, ByteBufCodecs.FLOAT, Status::health,
-				ByteBufCodecs.VAR_INT, Status::food, Status::new);
+		public static final StreamCodec<ByteBuf, Status> CODEC = StreamCodec.of(
+				(buf, s) -> {
+					ByteBufCodecs.VAR_INT.encode(buf, s.state);
+					ByteBufCodecs.STRING_UTF8.encode(buf, s.order);
+					ByteBufCodecs.STRING_UTF8.encode(buf, s.activity);
+					ByteBufCodecs.STRING_UTF8.encode(buf, s.detail);
+					ByteBufCodecs.VAR_INT.encode(buf, s.era);
+					ByteBufCodecs.FLOAT.encode(buf, s.health);
+					ByteBufCodecs.VAR_INT.encode(buf, s.food);
+					ByteBufCodecs.VAR_INT.encode(buf, s.px);
+					ByteBufCodecs.VAR_INT.encode(buf, s.py);
+					ByteBufCodecs.VAR_INT.encode(buf, s.pz);
+					ByteBufCodecs.STRING_UTF8.encode(buf, s.pois);
+				},
+				buf -> new Status(
+						ByteBufCodecs.VAR_INT.decode(buf),
+						ByteBufCodecs.STRING_UTF8.decode(buf),
+						ByteBufCodecs.STRING_UTF8.decode(buf),
+						ByteBufCodecs.STRING_UTF8.decode(buf),
+						ByteBufCodecs.VAR_INT.decode(buf),
+						ByteBufCodecs.FLOAT.decode(buf),
+						ByteBufCodecs.VAR_INT.decode(buf),
+						ByteBufCodecs.VAR_INT.decode(buf),
+						ByteBufCodecs.VAR_INT.decode(buf),
+						ByteBufCodecs.VAR_INT.decode(buf),
+						ByteBufCodecs.STRING_UTF8.decode(buf)
+				)
+		);
 		@Override public Type<Status> type() { return TYPE; }
 	}
 

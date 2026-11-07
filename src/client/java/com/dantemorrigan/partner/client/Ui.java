@@ -64,5 +64,95 @@ public final class Ui {
 		return ((int) (((color >>> 24) & 0xFF) * alpha) << 24) | (color & 0xFFFFFF);
 	}
 
+	/**
+	 * Draws a live tactical radar centered on the player, plotting discovered landmarks (Home, Dungeons, Villages)
+	 * and the partner's real-time position, direction vector, distance, and coordinates.
+	 */
+	public static void renderRadar(GuiGraphicsExtractor g, int x, int y, int size, boolean showDetails) {
+		Minecraft mc = Minecraft.getInstance();
+		Font font = mc.font;
+		g.fill(x, y, x + size, y + size, 0xCC091412);
+		g.fill(x, y, x + size, y + 1, BORDER);
+		g.fill(x, y + size - 1, x + size, y + size, BORDER);
+		g.fill(x, y, x + 1, y + size, BORDER);
+		g.fill(x + size - 1, y, x + size, y + size, BORDER);
+
+		int cx = x + size / 2;
+		int cy = y + size / 2;
+		// Subtle radar grid lines
+		g.fill(x + 2, cy, x + size - 2, cy + 1, 0x4448655A);
+		g.fill(cx, y + 2, cx + 1, y + size - 2, 0x4448655A);
+
+		if (mc.player == null || !ClientState.present()) return;
+
+		double ox = mc.player.getX(), oz = mc.player.getZ();
+		double dx = ClientState.px - ox, dz = ClientState.pz - oz;
+		double dist = Math.hypot(dx, dz);
+		double maxRange = Math.max(64.0, Math.min(2500.0, dist * 1.3));
+		int radius = (size / 2) - 6;
+
+		// Plot POIs from ClientState.pois ("H:x,y,z;D:x,y,z;V:x,y,z")
+		if (ClientState.pois != null && !ClientState.pois.isEmpty()) {
+			for (String token : ClientState.pois.split(";")) {
+				if (token.length() < 3 || token.charAt(1) != ':') continue;
+				char kind = token.charAt(0);
+				String[] parts = token.substring(2).split(",");
+				if (parts.length < 3) continue;
+				try {
+					int px = Integer.parseInt(parts[0]);
+					int pz = Integer.parseInt(parts[2]);
+					double pdx = (px - ox) / maxRange;
+					double pdz = (pz - oz) / maxRange;
+					double len = Math.hypot(pdx, pdz);
+					if (len > 1.0) {
+						pdx /= len;
+						pdz /= len;
+					}
+					int dotX = cx + (int) Math.round(pdx * radius);
+					int dotY = cy + (int) Math.round(pdz * radius);
+					int poiColor = switch (kind) {
+						case 'H' -> HELP;       // Home base (gold)
+						case 'D' -> ALERT;      // Dungeon (coral red)
+						case 'V' -> 0xFF55FF88; // Village / Trader (emerald)
+						default -> 0xFF77CCFF;  // Biome landmark
+					};
+					g.fill(dotX - 1, dotY - 1, dotX + 2, dotY + 2, poiColor);
+				} catch (NumberFormatException ignored) {}
+			}
+		}
+
+		// Player dot at center
+		g.fill(cx - 1, cy - 1, cx + 2, cy + 2, TEXT);
+
+		// Partner dot & direction trail
+		double ndx = dx / maxRange;
+		double ndz = dz / maxRange;
+		double nlen = Math.hypot(ndx, ndz);
+		if (nlen > 1.0) {
+			ndx /= nlen;
+			ndz /= nlen;
+		}
+		int pxDot = cx + (int) Math.round(ndx * radius);
+		int pzDot = cy + (int) Math.round(ndz * radius);
+
+		// Dotted line from center to partner
+		for (int i = 1; i <= 5; i++) {
+			int lx = cx + (pxDot - cx) * i / 6;
+			int ly = cy + (pzDot - cy) * i / 6;
+			g.fill(lx, ly, lx + 1, ly + 1, 0x8892F0BD);
+		}
+		// Partner pulsing marker
+		g.fill(pxDot - 2, pzDot - 2, pxDot + 3, pzDot + 3, 0x6692F0BD);
+		g.fill(pxDot - 1, pzDot - 1, pxDot + 2, pzDot + 2, ACCENT);
+
+		if (showDetails) {
+			fitText(g, Component.literal("N"), cx, y + 2, 10, MUTED, true);
+			String distStr = (int) Math.round(dist) + "m";
+			fitText(g, Component.literal(distStr), x + 4, y + size - 9, size - 8, ACCENT, false);
+			String coords = ClientState.px + ", " + ClientState.py + ", " + ClientState.pz;
+			fitText(g, Component.literal(coords), cx, y + size + 3, size + 16, MUTED, true);
+		}
+	}
+
 	private Ui() {}
 }

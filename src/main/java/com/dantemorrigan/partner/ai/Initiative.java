@@ -74,6 +74,8 @@ public final class Initiative {
 			ask(owner, "ask_full", List.of(
 					PartnerChat.button(Component.translatable("partner.local_partner.btn.take"), "/partner give",
 							Component.translatable("partner.local_partner.btn.take.hover"), PartnerChat.HELP_COLOR),
+					PartnerChat.button(Component.translatable("partner.local_partner.btn.store"), "/partner store",
+							Component.translatable("partner.local_partner.btn.store.hover"), PartnerChat.ORE),
 					PartnerChat.button(Component.translatable("partner.local_partner.btn.open"), "/partner inventory",
 							Component.translatable("partner.local_partner.btn.open.hover"), PartnerChat.ACCENT),
 					PartnerChat.laterButton()));
@@ -85,6 +87,8 @@ public final class Initiative {
 			ask(owner, "ask_share", List.of(
 					PartnerChat.button(Component.translatable("partner.local_partner.btn.take"), "/partner give",
 							Component.translatable("partner.local_partner.btn.take.hover"), PartnerChat.HELP_COLOR),
+					PartnerChat.button(Component.translatable("partner.local_partner.btn.store"), "/partner store",
+							Component.translatable("partner.local_partner.btn.store.hover"), PartnerChat.ORE),
 					PartnerChat.laterButton()), logs, ores);
 			return null;
 		}
@@ -103,6 +107,8 @@ public final class Initiative {
 		if (level.dimension() == net.minecraft.world.level.Level.OVERWORLD && dayTime > 11500 && dayTime < 12500
 				&& level.canSeeSky(owner.blockPosition()) && ready("night")) {
 			ask(owner, "ask_night", List.of(PartnerChat.orderButton("guard", PartnerChat.GUARD), PartnerChat.orderButton("patrol", PartnerChat.PATROL),
+					PartnerChat.button(Component.translatable("partner.local_partner.btn.campfire"), "/partner campfire",
+							Component.translatable("partner.local_partner.btn.campfire.hover"), PartnerChat.WOOD),
 					PartnerChat.laterButton()));
 			return null;
 		}

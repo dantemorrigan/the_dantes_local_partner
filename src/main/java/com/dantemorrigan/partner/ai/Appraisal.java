@@ -149,7 +149,9 @@ public final class Appraisal {
 		}
 		// ---------------------------------------------------------------- materials
 		if (item == Items.IRON_INGOT || item == Items.DIAMOND || item == Items.RAW_IRON || item == Items.COAL || item == Items.CHARCOAL
-				|| s.is(ItemTags.LOGS) || s.is(ItemTags.PLANKS) || s.is(ItemTags.STONE_TOOL_MATERIALS) || item == Items.STRING || item == Items.GOLD_INGOT) {
+				|| item == Items.RAW_GOLD || item == Items.GOLD_INGOT || item == Items.ANCIENT_DEBRIS || item == Items.NETHERITE_SCRAP
+				|| item == Items.NETHERITE_INGOT || InfinityCompat.isUruMaterial(s) || s.is(ItemTags.WOOL)
+				|| s.is(ItemTags.LOGS) || s.is(ItemTags.PLANKS) || s.is(ItemTags.STONE_TOOL_MATERIALS) || item == Items.STRING) {
 			List<Item> can = AutoJob.plannedCrafts(brain);
 			if (!can.isEmpty()) {
 				Component list = Component.empty();

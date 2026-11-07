@@ -53,17 +53,57 @@ public final class Smelter {
 		return progress > 0;
 	}
 
+	public static boolean hasSmeltable(SimpleContainer c, ServerLevel level) {
+		return findInput(c, level) >= 0;
+	}
+
+	public static int countSmeltable(SimpleContainer c, ServerLevel level) {
+		int total = 0;
+		for (int i = 0; i < c.getContainerSize(); i++) {
+			ItemStack s = c.getItem(i);
+			if (!s.isEmpty() && isSmeltable(s, level)) total += s.getCount();
+		}
+		return total;
+	}
+
+	public boolean ensureBurning(SimpleContainer c, ServerLevel level) {
+		return burn > 0 || refuel(c, level);
+	}
+
+	/** Smelts one item immediately (called by {@link SmeltJob} after cooking at a placed furnace). */
+	public boolean finishOne(PartnerEntity p, ServerLevel level) {
+		SimpleContainer c = p.backpack();
+		int input = findInput(c, level);
+		if (input < 0 || (burn <= 0 && !refuel(c, level))) return false;
+		progress = 0;
+		ItemStack raw = c.getItem(input);
+		var recipe = level.recipeAccess().getRecipeFor(RecipeType.SMELTING, new SingleRecipeInput(raw), level);
+		if (recipe.isEmpty()) return false;
+		ItemStack out = recipe.get().value().assemble(new SingleRecipeInput(raw)).copy();
+		raw.shrink(1);
+		p.brain().report("smelt_done", out.getHoverName(), Gear.count(c, out.getItem()) + out.getCount());
+		ItemStack rest = c.addItem(out);
+		if (!rest.isEmpty()) p.spawnAtLocation(level, rest);
+		c.setChanged();
+		p.playSound(SoundEvents.FURNACE_FIRE_CRACKLE, 0.4f, 1f);
+		return true;
+	}
+
+	private static boolean isSmeltable(ItemStack s, ServerLevel level) {
+		var recipe = level.recipeAccess().getRecipeFor(RecipeType.SMELTING, new SingleRecipeInput(s), level);
+		if (recipe.isEmpty()) return false;
+		ItemStack out = recipe.get().value().assemble(new SingleRecipeInput(s));
+		String path = Gear.id(out).getPath();
+		boolean ore = (path.endsWith("_ingot") || out.is(Items.NETHERITE_SCRAP)
+				|| com.dantemorrigan.partner.compat.InfinityCompat.isUruIngot(out)) && !Gear.id(s).getPath().endsWith("_ingot");
+		boolean food = Gear.isFood(out) && !Gear.isFood(s) || s.has(net.minecraft.core.component.DataComponents.FOOD) && Gear.nutrition(out) > Gear.nutrition(s);
+		return ore || food;
+	}
+
 	private static int findInput(SimpleContainer c, ServerLevel level) {
 		for (int i = 0; i < c.getContainerSize(); i++) {
 			ItemStack s = c.getItem(i);
-			if (s.isEmpty()) continue;
-			var recipe = level.recipeAccess().getRecipeFor(RecipeType.SMELTING, new SingleRecipeInput(s), level);
-			if (recipe.isEmpty()) continue;
-			ItemStack out = recipe.get().value().assemble(new SingleRecipeInput(s));
-			String path = Gear.id(out).getPath();
-			boolean ore = path.endsWith("_ingot") && !Gear.id(s).getPath().endsWith("_ingot");
-			boolean food = Gear.isFood(out) && !Gear.isFood(s) || s.has(net.minecraft.core.component.DataComponents.FOOD) && Gear.nutrition(out) > Gear.nutrition(s);
-			if (ore || food) return i;
+			if (!s.isEmpty() && isSmeltable(s, level)) return i;
 		}
 		return -1;
 	}

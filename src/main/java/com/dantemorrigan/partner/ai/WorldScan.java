@@ -16,7 +16,7 @@ import java.util.function.Predicate;
 /** Looks around for work: natural trees, ores a player could see, stone to dig. */
 public final class WorldScan {
 	/** Which ore kinds are wanted. */
-	public enum OreKind { ANY, COAL, IRON, DIAMOND, STONE }
+	public enum OreKind { ANY, COAL, IRON, GOLD, DIAMOND, NETHERITE, URU, STONE }
 
 	private WorldScan() {}
 
@@ -72,8 +72,11 @@ public final class WorldScan {
 		return switch (kind) {
 			case COAL -> s.is(BlockTags.COAL_ORES);
 			case IRON -> s.is(BlockTags.IRON_ORES);
+			case GOLD -> s.is(BlockTags.GOLD_ORES) || s.is(Blocks.NETHER_GOLD_ORE);
 			case DIAMOND -> s.is(BlockTags.DIAMOND_ORES);
-			case STONE -> s.is(Blocks.STONE) || s.is(Blocks.COBBLESTONE) || s.is(Blocks.DEEPSLATE) || s.is(Blocks.COBBLED_DEEPSLATE);
+			case NETHERITE -> s.is(Blocks.ANCIENT_DEBRIS);
+			case URU -> InfinityCompat.isUruOre(s);
+			case STONE -> s.is(Blocks.STONE) || s.is(Blocks.COBBLESTONE) || s.is(Blocks.DEEPSLATE) || s.is(Blocks.COBBLED_DEEPSLATE) || s.is(Blocks.BLACKSTONE);
 			case ANY -> s.is(BlockTags.COAL_ORES) || s.is(BlockTags.IRON_ORES) || s.is(BlockTags.COPPER_ORES)
 					|| s.is(BlockTags.GOLD_ORES) || s.is(BlockTags.REDSTONE_ORES) || s.is(BlockTags.LAPIS_ORES)
 					|| s.is(BlockTags.DIAMOND_ORES) || s.is(BlockTags.EMERALD_ORES) || s.is(Blocks.NETHER_QUARTZ_ORE)
@@ -149,9 +152,11 @@ public final class WorldScan {
 
 	/** Natural ground the staircase miner may dig through (never player builds, never containers). */
 	public static boolean diggable(BlockState s) {
-		return s.is(BlockTags.BASE_STONE_OVERWORLD) || s.is(BlockTags.DIRT) || s.is(Blocks.GRAVEL) || s.is(Blocks.SAND)
-				|| s.is(Blocks.RED_SAND) || s.is(Blocks.SANDSTONE) || s.is(Blocks.CLAY) || s.is(Blocks.COBBLESTONE)
-				|| s.is(Blocks.SNOW) || s.is(Blocks.SNOW_BLOCK) || s.is(Blocks.CALCITE) || s.is(Blocks.SMOOTH_BASALT)
+		return s.is(BlockTags.BASE_STONE_OVERWORLD) || s.is(BlockTags.BASE_STONE_NETHER) || s.is(BlockTags.DIRT)
+				|| s.is(Blocks.GRAVEL) || s.is(Blocks.SAND) || s.is(Blocks.RED_SAND) || s.is(Blocks.SANDSTONE)
+				|| s.is(Blocks.CLAY) || s.is(Blocks.COBBLESTONE) || s.is(Blocks.SNOW) || s.is(Blocks.SNOW_BLOCK)
+				|| s.is(Blocks.CALCITE) || s.is(Blocks.SMOOTH_BASALT) || s.is(Blocks.BASALT) || s.is(Blocks.BLACKSTONE)
+				|| s.is(Blocks.SOUL_SAND) || s.is(Blocks.SOUL_SOIL) || s.is(Blocks.END_STONE)
 				|| s.is(Blocks.DRIPSTONE_BLOCK) || s.is(Blocks.MOSS_BLOCK) || s.is(Blocks.TERRACOTTA)
 				|| isOre(s, OreKind.ANY) || s.isAir();
 	}

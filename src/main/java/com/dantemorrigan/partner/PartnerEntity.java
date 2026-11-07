@@ -185,6 +185,10 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 		return Math.floorMod(this.entityData.get(DATA_SKIN), SKINS.length);
 	}
 
+	public void cycleSkin(int delta) {
+		this.entityData.set(DATA_SKIN, Math.floorMod(skin() + delta, SKINS.length));
+	}
+
 	public SimpleContainer backpack() {
 		return backpack;
 	}

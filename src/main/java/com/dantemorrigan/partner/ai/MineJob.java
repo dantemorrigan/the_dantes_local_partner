@@ -64,7 +64,10 @@ public final class MineJob implements Job {
 		this.product = switch (kind) {
 			case COAL -> s -> s.is(Items.COAL);
 			case IRON -> s -> s.is(Items.RAW_IRON) || s.is(Items.IRON_INGOT);
+			case GOLD -> s -> s.is(Items.RAW_GOLD) || s.is(Items.GOLD_INGOT) || s.is(Items.GOLD_NUGGET);
 			case DIAMOND -> s -> s.is(Items.DIAMOND);
+			case NETHERITE -> s -> s.is(Items.ANCIENT_DEBRIS) || s.is(Items.NETHERITE_SCRAP) || s.is(Items.NETHERITE_INGOT);
+			case URU -> com.dantemorrigan.partner.compat.InfinityCompat::isUruMaterial;
 			case STONE -> s -> s.is(ItemTags.STONE_TOOL_MATERIALS);
 			case ANY -> MineJob::isOreProduct;
 		};
@@ -74,24 +77,33 @@ public final class MineJob implements Job {
 		String path = Gear.id(s).getPath();
 		return path.startsWith("raw_") || s.is(Items.COAL) || s.is(Items.DIAMOND) || s.is(Items.EMERALD)
 				|| s.is(Items.REDSTONE) || s.is(Items.LAPIS_LAZULI) || s.is(Items.QUARTZ) || s.is(Items.ANCIENT_DEBRIS)
-				|| s.is(Items.GOLD_NUGGET);
+				|| s.is(Items.GOLD_NUGGET) || com.dantemorrigan.partner.compat.InfinityCompat.isUruMaterial(s);
 	}
 
 	private int requiredTier() {
 		return switch (kind) {
 			case IRON -> 2;
-			case DIAMOND -> 3;
+			case GOLD, DIAMOND -> 3;
+			case NETHERITE, URU -> 4;
 			default -> 1;
 		};
 	}
 
 	private int targetY(ServerLevel level, PartnerEntity p) {
+		boolean nether = level.dimension() == net.minecraft.world.level.Level.NETHER;
 		return switch (kind) {
 			case DIAMOND -> Math.max(level.getMinY() + 6, -54);
-			case IRON, ANY -> 16;
+			case NETHERITE -> 15;
+			case URU -> Math.max(level.getMinY() + 6, -50);
+			case GOLD -> nether ? 32 : -16;
+			case IRON, ANY -> nether ? (brainTier(p) >= 4 ? 15 : 32) : 16;
 			case COAL -> Math.min(p.getBlockY() - 4, 48);
 			case STONE -> p.getBlockY() - 3;
 		};
+	}
+
+	private static int brainTier(PartnerEntity p) {
+		return Gear.pickTierOf(p);
 	}
 
 	@Override
@@ -342,12 +354,18 @@ public final class MineJob implements Job {
 		if (tier >= need) return true;
 		PartnerEntity p = brain.p;
 		// Make the pickaxe at a real crafting table (CraftJob finds or places one).
-		Item[] picks = need >= 3 ? new Item[]{Items.IRON_PICKAXE} : new Item[]{Items.IRON_PICKAXE, Items.STONE_PICKAXE, Items.WOODEN_PICKAXE};
+		Item[] picks = need >= 4 ? new Item[]{Items.DIAMOND_PICKAXE}
+				: need >= 3 ? new Item[]{Items.DIAMOND_PICKAXE, Items.IRON_PICKAXE}
+				: new Item[]{Items.DIAMOND_PICKAXE, Items.IRON_PICKAXE, Items.STONE_PICKAXE, Items.WOODEN_PICKAXE};
 		for (Item pick : picks) {
 			if (Gear.pickTier(new ItemStack(pick)) > tier && Crafting.canMake(p, pick)) {
 				prerequisite = new CraftJob(java.util.List.of(pick), true);
 				return false;
 			}
+		}
+		if (need >= 4) {
+			brain.say("need_diamond_pick");
+			return false;
 		}
 		if (need >= 3) {
 			brain.say("need_iron_pick");

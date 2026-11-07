@@ -85,13 +85,18 @@ public final class PartnerHud {
 		} else {
 			String order = ClientState.order.isEmpty() ? "follow" : ClientState.order;
 			icon = ClientState.state != 1 ? "alert" : switch (ClientState.activity) {
-				case "wood" -> "wood";
+				case "wood", "build" -> "wood";
 				case "ore", "stairs" -> "ore";
-				case "fight", "fight_boss", "guard", "retreat" -> "guard";
+				case "fight", "fight_boss", "guard", "retreat", "dungeon" -> "guard";
 				case "patrol" -> "patrol";
-				case "help_food", "recover", "returning" -> "assist";
-				case "hunt", "craft", "free", "sleep" -> "free";
-				default -> order;
+				case "help_food", "recover", "returning", "storing", "trade", "farm" -> "assist";
+				case "hunt", "craft", "smelt", "free", "sleep", "expedition" -> "free";
+				default -> switch (order) {
+					case "expedition" -> "free";
+					case "build" -> "wood";
+					case "farm" -> "assist";
+					default -> order;
+				};
 			};
 			// What it is doing right now (activity), with the progress detail; the order is the fallback.
 			if (ClientState.state == 1) {
@@ -123,6 +128,18 @@ public final class PartnerHud {
 		for (var l : lines) {
 			g.text(font, l, x + 24, ty, Ui.withAlpha(color, alpha), false);
 			ty += 9;
+		}
+		// Mini live radar next to the HUD card when the partner is on an expedition, roaming in free mode, or >32 blocks away.
+		if (ClientState.state == 1 && mc.player != null) {
+			double dist = Math.hypot(ClientState.px - mc.player.getX(), ClientState.pz - mc.player.getZ());
+			if (ClientState.order.equals("expedition") || ClientState.order.equals("free") || dist > 32) {
+				int radarSize = Math.max(32, Math.min(44, h));
+				int rx = x + w + 4;
+				int ry = y + h - radarSize;
+				if (rx + radarSize < screenW / 2 - 92) {
+					Ui.renderRadar(g, rx, ry, radarSize, false);
+				}
+			}
 		}
 	}
 

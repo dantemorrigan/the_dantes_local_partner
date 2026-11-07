@@ -26,10 +26,16 @@ public final class Crafting {
 	private record Recipe(Item out, int count, boolean table, List<Need> needs) {}
 
 	private static final Predicate<ItemStack> PLANKS = s -> s.is(ItemTags.PLANKS);
+	private static final Predicate<ItemStack> LOGS = s -> s.is(ItemTags.LOGS);
+	private static final Predicate<ItemStack> WOOL = s -> s.is(ItemTags.WOOL);
 	private static final Predicate<ItemStack> STICK = s -> s.is(Items.STICK);
 	private static final Predicate<ItemStack> COBBLE = s -> s.is(ItemTags.STONE_TOOL_MATERIALS);
 	private static final Predicate<ItemStack> IRON = s -> s.is(Items.IRON_INGOT);
+	private static final Predicate<ItemStack> GOLD = s -> s.is(Items.GOLD_INGOT);
 	private static final Predicate<ItemStack> DIAMOND = s -> s.is(Items.DIAMOND);
+	private static final Predicate<ItemStack> SCRAP = s -> s.is(Items.NETHERITE_SCRAP);
+	private static final Predicate<ItemStack> NETHERITE = s -> s.is(Items.NETHERITE_INGOT);
+	private static final Predicate<ItemStack> URU = com.dantemorrigan.partner.compat.InfinityCompat::isUruIngot;
 	private static final Predicate<ItemStack> COAL = s -> s.is(ItemTags.COALS);
 	private static final Map<Item, Recipe> RECIPES = new LinkedHashMap<>();
 
@@ -37,6 +43,18 @@ public final class Crafting {
 		add(Items.STICK, 4, false, need(PLANKS, 2, Items.OAK_PLANKS));
 		add(Items.CRAFTING_TABLE, 1, false, need(PLANKS, 4, Items.OAK_PLANKS));
 		add(Items.TORCH, 4, false, need(COAL, 1, Items.COAL), need(STICK, 1, Items.STICK));
+		add(Items.SHEARS, 1, false, need(IRON, 2, Items.IRON_INGOT));
+		add(Items.BONE_MEAL, 3, false, need(s -> s.is(Items.BONE), 1, Items.BONE));
+		add(Items.BREAD, 1, true, need(s -> s.is(Items.WHEAT), 3, Items.WHEAT));
+		add(Items.CHEST, 1, true, need(PLANKS, 8, Items.OAK_PLANKS));
+		add(Items.OAK_DOOR, 3, true, need(PLANKS, 6, Items.OAK_PLANKS));
+		add(Items.OAK_FENCE, 3, true, need(PLANKS, 4, Items.OAK_PLANKS), need(STICK, 2, Items.STICK));
+		add(Items.OAK_FENCE_GATE, 1, true, need(PLANKS, 2, Items.OAK_PLANKS), need(STICK, 4, Items.STICK));
+		add(Items.WOODEN_HOE, 1, true, need(PLANKS, 2, Items.OAK_PLANKS), need(STICK, 2, Items.STICK));
+		add(Items.STONE_HOE, 1, true, need(COBBLE, 2, Items.COBBLESTONE), need(STICK, 2, Items.STICK));
+		add(Items.IRON_HOE, 1, true, need(IRON, 2, Items.IRON_INGOT), need(STICK, 2, Items.STICK));
+		add(Items.CAMPFIRE, 1, true, need(STICK, 3, Items.STICK), need(COAL, 1, Items.COAL), need(LOGS, 3, Items.OAK_LOG));
+		add(Items.WHITE_BED, 1, true, need(WOOL, 3, Items.WHITE_WOOL), need(PLANKS, 3, Items.OAK_PLANKS));
 		add(Items.FURNACE, 1, true, need(COBBLE, 8, Items.COBBLESTONE));
 		add(Items.WOODEN_PICKAXE, 1, true, need(PLANKS, 3, Items.OAK_PLANKS), need(STICK, 2, Items.STICK));
 		add(Items.WOODEN_SWORD, 1, true, need(PLANKS, 2, Items.OAK_PLANKS), need(STICK, 1, Items.STICK));
@@ -52,15 +70,40 @@ public final class Crafting {
 		add(Items.IRON_CHESTPLATE, 1, true, need(IRON, 8, Items.IRON_INGOT));
 		add(Items.IRON_LEGGINGS, 1, true, need(IRON, 7, Items.IRON_INGOT));
 		add(Items.IRON_BOOTS, 1, true, need(IRON, 4, Items.IRON_INGOT));
+		add(Items.GOLDEN_HELMET, 1, true, need(GOLD, 5, Items.GOLD_INGOT));
+		add(Items.GOLDEN_BOOTS, 1, true, need(GOLD, 4, Items.GOLD_INGOT));
 		add(Items.SHIELD, 1, true, need(PLANKS, 6, Items.OAK_PLANKS), need(IRON, 1, Items.IRON_INGOT));
 		add(Items.BOW, 1, true, need(STICK, 3, Items.STICK), need(s -> s.is(Items.STRING), 3, Items.STRING));
 		add(Items.ARROW, 4, true, need(s -> s.is(Items.FLINT), 1, Items.FLINT), need(STICK, 1, Items.STICK), need(s -> s.is(Items.FEATHER), 1, Items.FEATHER));
 		add(Items.DIAMOND_PICKAXE, 1, true, need(DIAMOND, 3, Items.DIAMOND), need(STICK, 2, Items.STICK));
 		add(Items.DIAMOND_SWORD, 1, true, need(DIAMOND, 2, Items.DIAMOND), need(STICK, 1, Items.STICK));
+		add(Items.DIAMOND_AXE, 1, true, need(DIAMOND, 3, Items.DIAMOND), need(STICK, 2, Items.STICK));
 		add(Items.DIAMOND_HELMET, 1, true, need(DIAMOND, 5, Items.DIAMOND));
 		add(Items.DIAMOND_CHESTPLATE, 1, true, need(DIAMOND, 8, Items.DIAMOND));
 		add(Items.DIAMOND_LEGGINGS, 1, true, need(DIAMOND, 7, Items.DIAMOND));
 		add(Items.DIAMOND_BOOTS, 1, true, need(DIAMOND, 4, Items.DIAMOND));
+		add(Items.NETHERITE_INGOT, 1, true, need(SCRAP, 4, Items.NETHERITE_SCRAP), need(GOLD, 4, Items.GOLD_INGOT));
+		add(Items.NETHERITE_PICKAXE, 1, true, need(s -> s.is(Items.DIAMOND_PICKAXE), 1, Items.DIAMOND_PICKAXE), need(NETHERITE, 1, Items.NETHERITE_INGOT));
+		add(Items.NETHERITE_SWORD, 1, true, need(s -> s.is(Items.DIAMOND_SWORD), 1, Items.DIAMOND_SWORD), need(NETHERITE, 1, Items.NETHERITE_INGOT));
+		add(Items.NETHERITE_HELMET, 1, true, need(s -> s.is(Items.DIAMOND_HELMET), 1, Items.DIAMOND_HELMET), need(NETHERITE, 1, Items.NETHERITE_INGOT));
+		add(Items.NETHERITE_CHESTPLATE, 1, true, need(s -> s.is(Items.DIAMOND_CHESTPLATE), 1, Items.DIAMOND_CHESTPLATE), need(NETHERITE, 1, Items.NETHERITE_INGOT));
+		add(Items.NETHERITE_LEGGINGS, 1, true, need(s -> s.is(Items.DIAMOND_LEGGINGS), 1, Items.DIAMOND_LEGGINGS), need(NETHERITE, 1, Items.NETHERITE_INGOT));
+		add(Items.NETHERITE_BOOTS, 1, true, need(s -> s.is(Items.DIAMOND_BOOTS), 1, Items.DIAMOND_BOOTS), need(NETHERITE, 1, Items.NETHERITE_INGOT));
+	}
+
+	public static void initModRecipes() {
+		Item uruPick = com.dantemorrigan.partner.compat.InfinityCompat.item("uru_pickaxe");
+		if (uruPick != Items.AIR) add(uruPick, 1, true, need(URU, 3, Items.AIR), need(STICK, 2, Items.STICK));
+		Item uruSword = com.dantemorrigan.partner.compat.InfinityCompat.item("uru_sword");
+		if (uruSword != Items.AIR) add(uruSword, 1, true, need(URU, 2, Items.AIR), need(STICK, 1, Items.STICK));
+		Item uruHelm = com.dantemorrigan.partner.compat.InfinityCompat.item("uru_helmet");
+		if (uruHelm != Items.AIR) add(uruHelm, 1, true, need(URU, 5, Items.AIR));
+		Item uruChest = com.dantemorrigan.partner.compat.InfinityCompat.item("uru_chestplate");
+		if (uruChest != Items.AIR) add(uruChest, 1, true, need(URU, 8, Items.AIR));
+		Item uruLegs = com.dantemorrigan.partner.compat.InfinityCompat.item("uru_leggings");
+		if (uruLegs != Items.AIR) add(uruLegs, 1, true, need(URU, 7, Items.AIR));
+		Item uruBoots = com.dantemorrigan.partner.compat.InfinityCompat.item("uru_boots");
+		if (uruBoots != Items.AIR) add(uruBoots, 1, true, need(URU, 4, Items.AIR));
 	}
 
 	private static Need need(Predicate<ItemStack> what, int count, Item plain) {
@@ -79,9 +122,14 @@ public final class Crafting {
 	public static boolean craft(PartnerEntity p, Item target) {
 		if (needsTable(target) && !tableNearby(p)) return false;
 		SimpleContainer c = p.backpack();
+		unequipDiamondForUpgrade(p, target, c, false);
 		java.util.List<ItemStack> overflow = new java.util.ArrayList<>();
-		if (!make(c, target, 0, new boolean[]{true}, overflow)) return false;
+		if (!make(c, target, 0, new boolean[]{true}, overflow)) {
+			Gear.equipArmor(p);
+			return false;
+		}
 		if (p.level() instanceof net.minecraft.server.level.ServerLevel level) for (ItemStack rest : overflow) p.spawnAtLocation(level, rest);
+		Gear.equipArmor(p);
 		p.playSound(SoundEvents.VILLAGER_WORK_TOOLSMITH, 0.4f, 1.2f);
 		p.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
 		return true;
@@ -92,7 +140,27 @@ public final class Crafting {
 		SimpleContainer src = p.backpack();
 		SimpleContainer copy = new SimpleContainer(src.getContainerSize() + 9);
 		for (int i = 0; i < src.getContainerSize(); i++) copy.setItem(i, src.getItem(i).copy());
+		unequipDiamondForUpgrade(p, target, copy, true);
 		return make(copy, target, 0, new boolean[]{tableNearby(p)}, new java.util.ArrayList<>());
+	}
+
+	private static void unequipDiamondForUpgrade(PartnerEntity p, Item target, SimpleContainer dest, boolean copyOnly) {
+		Recipe r = RECIPES.get(target);
+		if (r == null) return;
+		for (Need n : r.needs()) {
+			if (Gear.count(dest, n.what()) >= n.count()) continue;
+			for (net.minecraft.world.entity.EquipmentSlot slot : new net.minecraft.world.entity.EquipmentSlot[]{
+					net.minecraft.world.entity.EquipmentSlot.MAINHAND, net.minecraft.world.entity.EquipmentSlot.HEAD,
+					net.minecraft.world.entity.EquipmentSlot.CHEST, net.minecraft.world.entity.EquipmentSlot.LEGS,
+					net.minecraft.world.entity.EquipmentSlot.FEET}) {
+				ItemStack eq = p.getItemBySlot(slot);
+				if (n.what().test(eq)) {
+					dest.addItem(eq.copy());
+					if (!copyOnly) p.setItemSlot(slot, ItemStack.EMPTY);
+					break;
+				}
+			}
+		}
 	}
 
 	public static boolean needsTable(Item target) {
