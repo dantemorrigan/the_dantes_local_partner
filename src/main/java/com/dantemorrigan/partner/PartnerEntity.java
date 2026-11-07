@@ -504,7 +504,22 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 		if (source.getEntity() instanceof Player || source.getEntity() instanceof PartnerEntity
 				|| source.getEntity() instanceof OwnableEntity o && o.getOwnerReference() != null && owner != null
 				&& owner.equals(o.getOwnerReference().getUUID())) return false;
+		if (this.getHealth() - damage <= 4.0f && !this.getOffhandItem().is(Items.TOTEM_OF_UNDYING) && !this.isEating()) {
+			for (int i = 0; i < backpack.getContainerSize(); i++) {
+				if (backpack.getItem(i).is(Items.TOTEM_OF_UNDYING)) {
+					ItemStack old = this.getOffhandItem();
+					this.setItemSlot(EquipmentSlot.OFFHAND, backpack.removeItem(i, 1));
+					if (!old.isEmpty()) backpack.addItem(old);
+					break;
+				}
+			}
+		}
+		boolean hadTotem = this.getOffhandItem().is(Items.TOTEM_OF_UNDYING) || this.getMainHandItem().is(Items.TOTEM_OF_UNDYING);
 		boolean hurt = super.hurtServer(level, source, damage);
+		if (hadTotem && !this.getOffhandItem().is(Items.TOTEM_OF_UNDYING) && !this.getMainHandItem().is(Items.TOTEM_OF_UNDYING) && this.isAlive()) {
+			speak("totem_saved");
+			brain.onPickedUp();
+		}
 		if (hurt) {
 			exhaustion += 0.1f;
 			brain.onHurt(source);
@@ -519,6 +534,17 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 
 	@Override
 	public void die(DamageSource source) {
+		if (this.level() instanceof ServerLevel level && !source.is(net.minecraft.tags.DamageTypeTags.BYPASSES_INVULNERABILITY)
+				&& Gear.take(backpack, s -> s.is(Items.TOTEM_OF_UNDYING), 1) > 0) {
+			this.setHealth(10.0f);
+			this.removeAllEffects();
+			this.addEffect(new net.minecraft.world.effect.MobEffectInstance(net.minecraft.world.effect.MobEffects.REGENERATION, 900, 1));
+			this.addEffect(new net.minecraft.world.effect.MobEffectInstance(net.minecraft.world.effect.MobEffects.ABSORPTION, 100, 1));
+			this.addEffect(new net.minecraft.world.effect.MobEffectInstance(net.minecraft.world.effect.MobEffects.FIRE_RESISTANCE, 800, 0));
+			level.broadcastEntityEvent(this, (byte) 35);
+			speak("totem_saved");
+			return;
+		}
 		boolean wasAlive = !this.isRemoved() && !this.dead;
 		super.die(source);
 		if (wasAlive && this.level() instanceof ServerLevel) PartnerManager.onPartnerDeath(this);

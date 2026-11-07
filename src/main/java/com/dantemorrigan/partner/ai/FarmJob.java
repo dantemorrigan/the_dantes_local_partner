@@ -208,6 +208,11 @@ public final class FarmJob implements Job {
 			}
 		}
 
+		// 10. Fish in nearby water if we have (or can craft) a fishing rod and could use fish/food
+		if (tryFishing(p, brain, level, center)) {
+			return Status.RUNNING;
+		}
+
 		// Patrol around the farm peacefully
 		brain.detail = "";
 		if (actionTicks % 80 == 0) {
@@ -685,6 +690,65 @@ public final class FarmJob implements Job {
 			if (level.getBlockState(pos).is(BlockTags.FENCES)) return true;
 		}
 		return false;
+	}
+
+	private int fishTicks;
+
+	private boolean tryFishing(PartnerEntity p, PartnerBrain brain, ServerLevel level, BlockPos center) {
+		if (Gear.count(p.backpack(), s -> s.is(Items.COD) || s.is(Items.SALMON)) >= 12) return false;
+		boolean hasRod = Gear.count(p.backpack(), Items.FISHING_ROD) > 0 || p.getMainHandItem().is(Items.FISHING_ROD);
+		if (!hasRod) {
+			if (Crafting.canMake(p, Items.FISHING_ROD)) {
+				subJob = new CraftJob(List.of(Items.FISHING_ROD), true);
+				return true;
+			}
+			return false;
+		}
+		BlockPos water = findFishingWater(level, center, 14);
+		if (water == null) return false;
+
+		equipInMainHand(p, Items.FISHING_ROD);
+		if (p.blockPosition().distSqr(water) > 16) {
+			if (p.tickCount % 10 == 0 || p.getNavigation().isDone()) {
+				p.getNavigation().moveTo(water.getX() + 0.5, water.getY() + 1, water.getZ() + 0.5, PartnerEntity.WALK);
+			}
+			brain.jumpIfBlocked(Vec3.atCenterOf(water));
+			return true;
+		}
+		p.getNavigation().stop();
+		p.getLookControl().setLookAt(water.getX() + 0.5, water.getY() + 0.5, water.getZ() + 0.5, 30, 30);
+		brain.detail = "🎣 " + water.getX() + "," + water.getZ();
+
+		if (fishTicks == 0) {
+			p.swing(InteractionHand.MAIN_HAND);
+			level.playSound(null, p.blockPosition(), SoundEvents.FISHING_BOBBER_THROW, SoundSource.PLAYERS, 0.6f, 1.0f);
+		}
+		fishTicks++;
+		if (fishTicks % 15 == 0) {
+			level.sendParticles(ParticleTypes.SPLASH, water.getX() + 0.5, water.getY() + 0.9, water.getZ() + 0.5, 5, 0.2, 0.05, 0.2, 0.02);
+		}
+		if (fishTicks >= 60) {
+			fishTicks = 0;
+			p.swing(InteractionHand.MAIN_HAND);
+			level.playSound(null, water, SoundEvents.FISHING_BOBBER_SPLASH, SoundSource.PLAYERS, 0.7f, 1.1f);
+			Item caught = p.getRandom().nextFloat() < 0.10f ? Items.LAPIS_LAZULI
+					: (p.getRandom().nextBoolean() ? Items.COD : Items.SALMON);
+			ItemStack prize = new ItemStack(caught, 1);
+			p.backpack().addItem(prize);
+			brain.report("caught_fish", prize.getHoverName());
+			results++;
+			cooldown = 40;
+		}
+		return true;
+	}
+
+	private static @Nullable BlockPos findFishingWater(ServerLevel level, BlockPos center, int r) {
+		for (BlockPos pos : BlockPos.withinManhattan(center, r, 4, r)) {
+			if (level.getFluidState(pos).is(FluidTags.WATER) && level.getBlockState(pos.above()).isAir()) {
+				return pos.immutable();
+			}
+		}
+		return null;
 	}
 
 	@Override

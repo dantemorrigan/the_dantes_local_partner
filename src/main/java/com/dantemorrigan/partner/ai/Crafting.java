@@ -44,6 +44,8 @@ public final class Crafting {
 		add(Items.CRAFTING_TABLE, 1, false, need(PLANKS, 4, Items.OAK_PLANKS));
 		add(Items.TORCH, 4, false, need(COAL, 1, Items.COAL), need(STICK, 1, Items.STICK));
 		add(Items.SHEARS, 1, false, need(IRON, 2, Items.IRON_INGOT));
+		add(Items.BUCKET, 1, true, need(IRON, 3, Items.IRON_INGOT));
+		add(Items.FISHING_ROD, 1, true, need(STICK, 3, Items.STICK), need(s -> s.is(Items.STRING), 2, Items.STRING));
 		add(Items.BONE_MEAL, 3, false, need(s -> s.is(Items.BONE), 1, Items.BONE));
 		add(Items.BREAD, 1, true, need(s -> s.is(Items.WHEAT), 3, Items.WHEAT));
 		add(Items.CHEST, 1, true, need(PLANKS, 8, Items.OAK_PLANKS));

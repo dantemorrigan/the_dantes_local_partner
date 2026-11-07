@@ -13,7 +13,7 @@
   "local_partner.pause.hint": "%s · command wheel",
   "local_partner.wheel.title": "COMMANDS",
   "local_partner.wheel.neutral": "Choose a command",
-  "local_partner.wheel.hint": "LMB / Enter · select     Esc · close",
+  "local_partner.wheel.hint": "LMB / Enter · select   G · ping target   Esc · close",
   "local_partner.wheel.hover_hint": "Move the cursor onto a sector.",
   "local_partner.wheel.unavailable_detail": "Your partner is temporarily unavailable.",
   "local_partner.wheel.unavailable": "Command unavailable",
@@ -309,5 +309,18 @@
   "partner.local_partner.say.build_nothing": "This structure is already finished!",
   "partner.local_partner.say.farm_pen_built": "Built a wooden fence pen with a gate for livestock.",
   "partner.local_partner.say.farm_herding": "Luring and herding to the farm: %s.",
-  "partner.local_partner.say.tamed_pet": "Tamed a pet for you: %s!"
+  "partner.local_partner.say.tamed_pet": "Tamed a pet for you: %s!",
+  "key.local_partner.ping": "Ping target for partner",
+  "partner.local_partner.say.totem_saved": "A Totem of Undying saved my life! Staying in the fight!",
+  "partner.local_partner.say.extinguished_fire": "Splashed water from a bucket — fire extinguished!",
+  "partner.local_partner.say.repaired_gear": "Field-repaired: %s.",
+  "partner.local_partner.say.enchanted_gear": "Enchanted at the enchanting table: %s!",
+  "partner.local_partner.say.ping_attack": "Target acquired — engaging %s!",
+  "partner.local_partner.say.ping_wood": "Got it, chopping down this tree (%s)!",
+  "partner.local_partner.say.ping_ore": "On it, mining this vein (%s)!",
+  "partner.local_partner.say.ping_store": "Heading over to store loot in that chest!",
+  "partner.local_partner.say.ping_move": "Moving to [%s, %s, %s]!",
+  "partner.local_partner.say.coop_wood": "I see you chopping wood — I'll help with the trees!",
+  "partner.local_partner.say.coop_ore": "I'll help you mine this ore (%s)!",
+  "partner.local_partner.say.caught_fish": "Caught with a fishing rod: %s!"
 }

@@ -19,6 +19,7 @@ public final class PartnerCommand {
 						.then(Commands.literal("store").executes(ctx -> run(ctx.getSource().getPlayerOrException(), "store")))
 						.then(Commands.literal("home").executes(ctx -> run(ctx.getSource().getPlayerOrException(), "home")))
 						.then(Commands.literal("campfire").executes(ctx -> run(ctx.getSource().getPlayerOrException(), "campfire")))
+						.then(Commands.literal("ping").executes(ctx -> run(ctx.getSource().getPlayerOrException(), "ping")))
 						.then(Commands.literal("skin").executes(ctx -> run(ctx.getSource().getPlayerOrException(), "skin_next")))
 						.then(Commands.literal("inventory").executes(ctx -> run(ctx.getSource().getPlayerOrException(), "inventory")))
 						.then(Commands.literal("status").executes(ctx -> run(ctx.getSource().getPlayerOrException(), "status")))

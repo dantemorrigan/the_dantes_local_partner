@@ -221,14 +221,25 @@ public final class Gear {
 		return false;
 	}
 
-	/** Puts on the best armor from the backpack, and a shield in the off hand. In the Nether, keeps one gold piece against Piglins unless wearing diamond+. */
+	/** Puts on the best armor from the backpack, and a shield (or Totem of Undying) in the off hand. In the Nether, keeps one gold piece against Piglins unless wearing diamond+. */
 	public static void equipArmor(PartnerEntity p) {
 		SimpleContainer c = p.backpack();
-		if (p.getOffhandItem().isEmpty() && !p.isEating()) {
-			for (int i = 0; i < c.getContainerSize(); i++) {
-				if (isShield(c.getItem(i))) {
-					p.setItemSlot(EquipmentSlot.OFFHAND, c.removeItemNoUpdate(i));
-					break;
+		if (!p.isEating()) {
+			if (p.getHealth() <= 10 && !p.getOffhandItem().is(Items.TOTEM_OF_UNDYING)) {
+				for (int i = 0; i < c.getContainerSize(); i++) {
+					if (c.getItem(i).is(Items.TOTEM_OF_UNDYING)) {
+						ItemStack old = p.getOffhandItem();
+						p.setItemSlot(EquipmentSlot.OFFHAND, c.removeItem(i, 1));
+						if (!old.isEmpty()) c.addItem(old);
+						break;
+					}
+				}
+			} else if (p.getOffhandItem().isEmpty()) {
+				for (int i = 0; i < c.getContainerSize(); i++) {
+					if (isShield(c.getItem(i)) || c.getItem(i).is(Items.TOTEM_OF_UNDYING)) {
+						p.setItemSlot(EquipmentSlot.OFFHAND, c.removeItem(i, 1));
+						break;
+					}
 				}
 			}
 		}
@@ -266,6 +277,71 @@ public final class Gear {
 			if (isGoldArmor(p.getItemBySlot(slot))) n++;
 		}
 		return n;
+	}
+
+	/**
+	 * Field repair and enchanting table mastery:
+	 * 1) Repairs damaged equipped tools/weapons/armor (>70% worn) using a matching material from the backpack.
+	 * 2) When near an Enchanting Table with Lapis/Emerald/Amethyst, enchants an unenchanted tool, weapon, bow, or armor piece.
+	 */
+	public static void maintainEquipment(PartnerEntity p, net.minecraft.server.level.ServerLevel level) {
+		SimpleContainer c = p.backpack();
+		for (EquipmentSlot slot : new EquipmentSlot[]{
+				EquipmentSlot.MAINHAND, EquipmentSlot.OFFHAND,
+				EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET}) {
+			ItemStack s = p.getItemBySlot(slot);
+			if (s.isEmpty() || !s.isDamageableItem() || s.getDamageValue() < s.getMaxDamage() * 0.70) continue;
+			Predicate<ItemStack> mat = repairMaterialFor(s);
+			if (mat != null && take(c, mat, 1) > 0) {
+				s.setDamageValue(Math.max(0, s.getDamageValue() - Math.max(1, s.getMaxDamage() / 2)));
+				p.playSound(net.minecraft.sounds.SoundEvents.ANVIL_USE, 0.35f, 1.3f);
+				p.brain().report("repaired_gear", s.getHoverName());
+				break;
+			}
+		}
+
+		// Enchanting Table mastery when within 6 blocks of an Enchanting Table
+		Predicate<ItemStack> catalyst = st -> st.is(Items.LAPIS_LAZULI) || st.is(Items.EMERALD) || st.is(Items.AMETHYST_SHARD);
+		if (count(c, catalyst) <= 0 || !nearEnchantingTable(level, p.blockPosition(), 6)) return;
+		var reg = level.registryAccess().lookup(net.minecraft.core.registries.Registries.ENCHANTMENT).orElse(null);
+		if (reg == null) return;
+
+		for (EquipmentSlot slot : new EquipmentSlot[]{
+				EquipmentSlot.MAINHAND, EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET}) {
+			ItemStack s = p.getItemBySlot(slot);
+			if (s.isEmpty() || s.isEnchanted()) continue;
+			var key = isSword(s) ? net.minecraft.world.item.enchantment.Enchantments.SHARPNESS
+					: isBow(s) ? net.minecraft.world.item.enchantment.Enchantments.POWER
+					: isTool(s) ? net.minecraft.world.item.enchantment.Enchantments.EFFICIENCY
+					: isArmor(s) ? net.minecraft.world.item.enchantment.Enchantments.PROTECTION : null;
+			if (key == null) continue;
+			var holder = reg.get(key).orElse(null);
+			if (holder != null && take(c, catalyst, 1) > 0) {
+				s.enchant(holder, 2);
+				level.sendParticles(net.minecraft.core.particles.ParticleTypes.ENCHANT, p.getX(), p.getY() + 1.2, p.getZ(), 20, 0.4, 0.4, 0.4, 0.3);
+				level.playSound(null, p.blockPosition(), net.minecraft.sounds.SoundEvents.ENCHANTMENT_TABLE_USE, net.minecraft.sounds.SoundSource.PLAYERS, 0.7f, 1.1f);
+				p.brain().report("enchanted_gear", s.getHoverName());
+				break;
+			}
+		}
+	}
+
+	private static boolean nearEnchantingTable(net.minecraft.server.level.ServerLevel level, net.minecraft.core.BlockPos center, int r) {
+		for (net.minecraft.core.BlockPos pos : net.minecraft.core.BlockPos.withinManhattan(center, r, 3, r)) {
+			if (level.getBlockState(pos).is(Blocks.ENCHANTING_TABLE)) return true;
+		}
+		return false;
+	}
+
+	private static @org.jspecify.annotations.Nullable Predicate<ItemStack> repairMaterialFor(ItemStack s) {
+		String path = id(s).getPath();
+		if (path.contains("diamond")) return st -> st.is(Items.DIAMOND);
+		if (path.contains("iron") || path.contains("shears")) return st -> st.is(Items.IRON_INGOT);
+		if (path.contains("golden")) return st -> st.is(Items.GOLD_INGOT);
+		if (path.contains("stone")) return st -> st.is(ItemTags.STONE_TOOL_MATERIALS);
+		if (path.contains("wooden") || isShield(s)) return st -> st.is(ItemTags.PLANKS);
+		if (isBow(s) || s.is(Items.FISHING_ROD)) return st -> st.is(Items.STRING);
+		return null;
 	}
 
 	public static Identifier id(ItemStack s) {

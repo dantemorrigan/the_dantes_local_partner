@@ -161,7 +161,9 @@ public final class PartnerBrain {
 	/** What the partner keeps when handing loot over: its tools, armor, a table, a furnace, a bed, torches and some food. */
 	public boolean keepsForItself(ItemStack s, int slot) {
 		if (Gear.isTool(s) || Gear.isArmor(s) || s.is(Items.CRAFTING_TABLE) || s.is(Items.FURNACE)
-				|| s.is(Items.TORCH) || s.is(Items.SHIELD) || s.is(Items.BOW) || s.is(Items.ARROW)) return true;
+				|| s.is(Items.TORCH) || s.is(Items.SHIELD) || s.is(Items.BOW) || s.is(Items.ARROW)
+				|| s.is(Items.BUCKET) || s.is(Items.WATER_BUCKET) || s.is(Items.FISHING_ROD)
+				|| s.is(Items.TOTEM_OF_UNDYING) || s.is(Items.LAPIS_LAZULI)) return true;
 		if (s.is(ItemTags.BEDS)) {
 			for (int i = 0; i < slot; i++) if (p.backpack().getItem(i).is(ItemTags.BEDS)) return false;
 			return true;
@@ -192,10 +194,22 @@ public final class PartnerBrain {
 			Gear.equipArmor(p);
 			gearDirty = false;
 		}
+		if (p.tickCount % 80 == 0) {
+			Gear.maintainEquipment(p, level);
+		}
 		if (owner == null || owner.isSpectator()) {
 			p.getNavigation().stop();
 			p.setActivity("waiting");
 			return;
+		}
+		// Boat & mount co-op: hop into the owner's boat/mount when there is a passenger seat free, dismount when they leave.
+		if (owner.isPassenger() && owner.getVehicle() != null) {
+			Entity v = owner.getVehicle();
+			if (!p.isPassenger() && v.getPassengers().size() < 2 && p.distanceTo(v) <= 6.0 && !inFight()) {
+				p.startRiding(v);
+			}
+		} else if (p.isPassenger() && (!owner.isPassenger() || inFight() || p.distanceTo(owner) > 20)) {
+			p.stopRiding();
 		}
 		if (recovering() && recover(level, owner)) return; // even if the owner already respawned elsewhere
 		if (owner.level() != p.level()) {
@@ -271,6 +285,26 @@ public final class PartnerBrain {
 	// ------------------------------------------------------------------ 1. survive
 
 	private boolean survive(ServerLevel level, ServerPlayer owner) {
+		// Water bucket fire-extinguish reflex for the partner or owner when burning outside lava/Nether
+		if (level.dimension() != net.minecraft.world.level.Level.NETHER && careCooldown == 0) {
+			boolean partnerBurning = p.isOnFire() && !p.isInLava();
+			boolean ownerBurning = owner.isOnFire() && !owner.isInLava() && p.distanceTo(owner) <= 8;
+			if ((partnerBurning || ownerBurning) && (Gear.count(p.backpack(), s -> s.is(Items.WATER_BUCKET) || s.is(Items.BUCKET)) > 0
+					|| Crafting.craft(p, Items.BUCKET))) {
+				if (partnerBurning) {
+					level.sendParticles(net.minecraft.core.particles.ParticleTypes.SPLASH, p.getX(), p.getY() + 0.8, p.getZ(), 24, 0.5, 0.4, 0.5, 0.1);
+					p.clearFire();
+				}
+				if (ownerBurning) {
+					level.sendParticles(net.minecraft.core.particles.ParticleTypes.SPLASH, owner.getX(), owner.getY() + 0.8, owner.getZ(), 24, 0.5, 0.4, 0.5, 0.1);
+					owner.clearFire();
+				}
+				level.playSound(null, p.blockPosition(), net.minecraft.sounds.SoundEvents.FIRE_EXTINGUISH, net.minecraft.sounds.SoundSource.PLAYERS, 0.7f, 1.1f);
+				p.swing(InteractionHand.MAIN_HAND);
+				careCooldown = 60;
+				say("extinguished_fire");
+			}
+		}
 		boolean burning = p.isInLava() || p.isOnFire() && p.getHealth() < 10;
 		boolean falling = p.getY() < level.getMinY() + 2;
 		if ((burning || falling) && teleportCooldown == 0) {
@@ -505,7 +539,7 @@ public final class PartnerBrain {
 		boolean flying = t.isNoGravity() || t instanceof net.minecraft.world.entity.monster.Phantom
 				|| t instanceof net.minecraft.world.entity.monster.Blaze || t.getY() - p.getY() > 3 && !t.onGround();
 		boolean canShoot = Gear.arrows(p) > 0 && Gear.has(p, Gear::isBow) && distSqr < 26 * 26 && p.hasLineOfSight(t);
-		if (canShoot && (flying || unreachableTicks > 40)) {
+		if (canShoot && (flying || t instanceof Creeper || unreachableTicks > 40)) {
 			shoot(level, t, distSqr);
 			return;
 		}
@@ -1248,6 +1282,85 @@ public final class PartnerBrain {
 				order, activity, (int) Math.ceil(p.getHealth()), p.foodLevel())));
 		player.sendSystemMessage(PartnerEntity.chat(p, Component.translatable("partner.local_partner.status2",
 				Component.translatable("partner.local_partner.era." + era()), detail.isEmpty() ? "—" : detail)));
+	}
+
+	/**
+	 * Contextual Target Ping (G key / /partner ping): raycasts up to 36 blocks along the owner's view.
+	 * Attacks pointed mobs, chops pointed trees, mines pointed ore, stores into pointed chests, farms pointed crops, or sprints to the pointed spot.
+	 */
+	public void onPing(ServerPlayer owner) {
+		if (!(p.level() instanceof ServerLevel level)) return;
+		Vec3 eye = owner.getEyePosition();
+		Vec3 view = owner.getViewVector(1.0f);
+		Vec3 end = eye.add(view.scale(36.0));
+		AABB searchBox = owner.getBoundingBox().expandTowards(view.scale(36.0)).inflate(1.5);
+		var entityHit = net.minecraft.world.entity.projectile.ProjectileUtil.getEntityHitResult(
+				owner, eye, end, searchBox,
+				e -> e instanceof LivingEntity le && le != p && le != owner && le.isAlive(), 36.0 * 36.0);
+		if (entityHit != null && entityHit.getEntity() instanceof LivingEntity le && validTarget(le, true)) {
+			stopJob(level);
+			target = le;
+			targetTicks = 0;
+			unreachableTicks = 0;
+			level.sendParticles(net.minecraft.core.particles.ParticleTypes.CRIT, le.getX(), le.getY() + le.getBbHeight() * 0.6, le.getZ(), 14, 0.3, 0.3, 0.3, 0.1);
+			p.speak("ping_attack", le.getName());
+			return;
+		}
+		var blockHit = level.clip(new net.minecraft.world.level.ClipContext(
+				eye, end, net.minecraft.world.level.ClipContext.Block.OUTLINE, net.minecraft.world.level.ClipContext.Fluid.NONE, owner));
+		if (blockHit.getType() != net.minecraft.world.phys.HitResult.Type.BLOCK) return;
+		BlockPos pos = blockHit.getBlockPos();
+		var state = level.getBlockState(pos);
+		level.sendParticles(net.minecraft.core.particles.ParticleTypes.END_ROD, pos.getX() + 0.5, pos.getY() + 1.0, pos.getZ() + 0.5, 10, 0.25, 0.25, 0.25, 0.02);
+
+		if (WorldScan.isNaturalLog(level, pos)) {
+			stopJob(level);
+			p.setOrderQuiet(PartnerOrder.WOOD);
+			job = new ChopJob(12);
+			p.speak("ping_wood", state.getBlock().getName());
+		} else if (WorldScan.isOre(state, WorldScan.OreKind.ANY)) {
+			stopJob(level);
+			p.setOrderQuiet(PartnerOrder.ORE);
+			job = new MineJob(WorldScan.OreKind.ANY, 10);
+			p.speak("ping_ore", state.getBlock().getName());
+		} else if (StoreJob.findChest(level, pos, 1) != null) {
+			stopJob(level);
+			job = new StoreJob(false);
+			p.speak("ping_store");
+		} else if (state.is(net.minecraft.world.level.block.Blocks.FARMLAND) || state.getBlock() instanceof net.minecraft.world.level.block.CropBlock) {
+			p.setOrder(PartnerOrder.FARM, owner);
+		} else {
+			stopJob(level);
+			p.setOrderQuiet(PartnerOrder.FOLLOW);
+			p.getNavigation().moveTo(pos.getX() + 0.5, pos.getY() + 1, pos.getZ() + 0.5, PartnerEntity.SPRINT);
+			p.speak("ping_move", pos.getX(), pos.getY() + 1, pos.getZ());
+		}
+	}
+
+	/**
+	 * Live Co-op Sync: when the owner breaks a natural tree log or ore block while the partner is following nearby,
+	 * the partner automatically joins in to help finish that tree or ore vein.
+	 */
+	public void onOwnerMinedBlock(ServerLevel level, ServerPlayer owner, BlockPos pos, net.minecraft.world.level.block.state.BlockState state) {
+		if (p.order() != PartnerOrder.FOLLOW || p.strictFollow() || inFight()) return;
+		if (job != null && !selfJob) return;
+		if (state.is(net.minecraft.tags.BlockTags.LOGS) && WorldScan.isNaturalLog(level, pos.above())) {
+			if (!(job instanceof ChopJob)) {
+				stopJob(level);
+				job = new ChopJob(8);
+				selfJob = true;
+				selfAnchor = owner.position();
+				report("coop_wood");
+			}
+		} else if (WorldScan.isOre(state, WorldScan.OreKind.ANY)) {
+			if (!(job instanceof MineJob)) {
+				stopJob(level);
+				job = new MineJob(WorldScan.OreKind.ANY, 8);
+				selfJob = true;
+				selfAnchor = owner.position();
+				report("coop_ore", state.getBlock().getName());
+			}
+		}
 	}
 
 	public int pickTier() {

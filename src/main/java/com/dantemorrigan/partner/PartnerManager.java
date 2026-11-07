@@ -80,6 +80,13 @@ public final class PartnerManager {
 			PartnerEntity p = find(player);
 			if (p != null && !p.isRemoved()) p.onOwnerRespawned(player);
 		});
+		net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents.AFTER.register((world, player, pos, state, blockEntity) -> {
+			if (!(player instanceof ServerPlayer owner) || !(world instanceof ServerLevel level)) return;
+			PartnerEntity p = find(owner);
+			if (p != null && p.isAlive() && p.level() == level && p.distanceTo(owner) <= 18) {
+				p.brain().onOwnerMinedBlock(level, owner, pos, state);
+			}
+		});
 	}
 
 	// ------------------------------------------------------------------ public API (packets)
@@ -182,6 +189,11 @@ public final class PartnerManager {
 			}
 			case "campfire" -> {
 				partner.brain().makeCampfire(owner);
+				return;
+			}
+			case "ping" -> {
+				partner.brain().onPing(owner);
+				sendStatus(owner);
 				return;
 			}
 			case "skin_next" -> {

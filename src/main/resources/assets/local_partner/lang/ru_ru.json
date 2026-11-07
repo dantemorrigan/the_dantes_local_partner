@@ -13,7 +13,7 @@
   "local_partner.pause.hint": "%s · колесо команд",
   "local_partner.wheel.title": "КОМАНДЫ",
   "local_partner.wheel.neutral": "Выбери команду",
-  "local_partner.wheel.hint": "ЛКМ / Enter · выбрать     Esc · закрыть",
+  "local_partner.wheel.hint": "ЛКМ / Enter · выбрать   G · указать цель   Esc · закрыть",
   "local_partner.wheel.hover_hint": "Наведи курсор на сектор.",
   "local_partner.wheel.unavailable_detail": "Напарник временно недоступен.",
   "local_partner.wheel.unavailable": "Команда недоступна",
@@ -309,5 +309,18 @@
   "partner.local_partner.say.build_nothing": "Постройка уже полностью готова!",
   "partner.local_partner.say.farm_pen_built": "Построил деревянный загон с калиткой для скота.",
   "partner.local_partner.say.farm_herding": "Приманиваю и веду на ферму: %s.",
-  "partner.local_partner.say.tamed_pet": "Приручил для тебя питомца: %s!"
+  "partner.local_partner.say.tamed_pet": "Приручил для тебя питомца: %s!",
+  "key.local_partner.ping": "Указать цель напарнику (Пинг)",
+  "partner.local_partner.say.totem_saved": "Тотем Бессмертия спас мне жизнь! Продолжаю бой!",
+  "partner.local_partner.say.extinguished_fire": "Окатил водой из ведра — пламя потушено!",
+  "partner.local_partner.say.repaired_gear": "Починил в походе: %s.",
+  "partner.local_partner.say.enchanted_gear": "Зачаровал на столе зачарований: %s!",
+  "partner.local_partner.say.ping_attack": "Вижу цель — вступаю в бой с %s!",
+  "partner.local_partner.say.ping_wood": "Понял, срублю это дерево (%s)!",
+  "partner.local_partner.say.ping_ore": "Понял, добуду эту жилу (%s)!",
+  "partner.local_partner.say.ping_store": "Бегу складывать добычу в этот сундук!",
+  "partner.local_partner.say.ping_move": "Бегу на точку [%s, %s, %s]!",
+  "partner.local_partner.say.coop_wood": "Вижу, ты рубишь лес — помогу с деревьями!",
+  "partner.local_partner.say.coop_ore": "Помогу тебе раскопать эту руду (%s)!",
+  "partner.local_partner.say.caught_fish": "Выловил удочкой: %s!"
 }
