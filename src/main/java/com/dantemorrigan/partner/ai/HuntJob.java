@@ -20,15 +20,22 @@ import org.jspecify.annotations.Nullable;
  */
 public final class HuntJob implements Job {
 	private final int wantedPoints;
+	private final boolean forLeather;
 	private @Nullable Animal prey;
-	private int cooldown, ticks, collect, searches;
+	private int cooldown, ticks, collect;
 
 	public HuntJob(int wantedPoints) {
+		this(wantedPoints, false);
+	}
+
+	public HuntJob(int wantedPoints, boolean forLeather) {
 		this.wantedPoints = wantedPoints;
+		this.forLeather = forLeather;
 	}
 
 	@Override
 	public int result(PartnerBrain brain) {
+		if (forLeather) return Gear.count(brain.p.backpack(), net.minecraft.world.item.Items.LEATHER);
 		return Gear.foodPoints(brain.p.backpack()) + rawPoints(brain.p);
 	}
 
@@ -40,11 +47,20 @@ public final class HuntJob implements Job {
 	@Override
 	public Status tick(PartnerBrain brain, ServerLevel level) {
 		PartnerEntity p = brain.p;
-		int points = Gear.foodPoints(p.backpack()) + rawPoints(p);
-		brain.detail = points + "/" + wantedPoints;
-		if (points >= wantedPoints) {
-			brain.report("hunt_done", points);
-			return Status.DONE;
+		if (forLeather) {
+			int leather = Gear.count(p.backpack(), net.minecraft.world.item.Items.LEATHER);
+			brain.detail = leather + "/" + wantedPoints;
+			if (leather >= wantedPoints) {
+				craftLeatherArmorForBoth(brain);
+				return Status.DONE;
+			}
+		} else {
+			int points = Gear.foodPoints(p.backpack()) + rawPoints(p);
+			brain.detail = points + "/" + wantedPoints;
+			if (points >= wantedPoints) {
+				brain.report("hunt_done", points);
+				return Status.DONE;
+			}
 		}
 		if (++ticks > 20 * 60 * 3) return Status.FAILED;
 		if (cooldown > 0) cooldown--;
@@ -56,14 +72,19 @@ public final class HuntJob implements Job {
 		if (prey == null || !prey.isAlive()) {
 			if (prey != null) {
 				p.sweepDropsNow(level);
+				if (forLeather) craftLeatherArmorForBoth(brain);
 				collect = 40;
 				prey = null;
 				return Status.RUNNING;
 			}
-			prey = findPrey(level, p);
+			prey = forLeather ? findLeatherPrey(level, p) : findPrey(level, p);
 			if (prey != null) {
 				brain.report("hunt_target", prey.getType().getDescription());
 				return Status.RUNNING;
+			}
+			if (forLeather && Gear.count(p.backpack(), net.minecraft.world.item.Items.LEATHER) >= 4) {
+				craftLeatherArmorForBoth(brain);
+				return Status.DONE;
 			}
 			return Status.FAILED;
 		}
@@ -93,13 +114,69 @@ public final class HuntJob implements Job {
 		return findPrey(level, p) != null;
 	}
 
+	public static boolean hasCowsNearby(ServerLevel level, PartnerEntity p) {
+		return findLeatherPrey(level, p) != null;
+	}
+
+	public static void craftLeatherArmorForBoth(PartnerBrain brain) {
+		PartnerEntity p = brain.p;
+		var owner = p.getOwnerPlayer();
+		if (p.getItemBySlot(net.minecraft.world.entity.EquipmentSlot.CHEST).isEmpty() && Crafting.craft(p, net.minecraft.world.item.Items.LEATHER_CHESTPLATE)) {
+			Gear.equipArmor(p);
+			brain.report("crafted", new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.LEATHER_CHESTPLATE).getHoverName());
+		}
+		if (owner != null && owner.getItemBySlot(net.minecraft.world.entity.EquipmentSlot.CHEST).isEmpty()
+				&& Crafting.craft(p, net.minecraft.world.item.Items.LEATHER_CHESTPLATE)) {
+			int slot = -1;
+			for (int i = 0; i < p.backpack().getContainerSize(); i++) {
+				if (p.backpack().getItem(i).is(net.minecraft.world.item.Items.LEATHER_CHESTPLATE)) {
+					slot = i;
+					break;
+				}
+			}
+			if (slot >= 0) {
+				var tunic = p.backpack().removeItem(slot, 1);
+				p.giveTo(owner, tunic);
+				brain.say("gave_leather_tunic", tunic.getHoverName());
+			}
+		}
+		for (var piece : new net.minecraft.world.item.Item[]{
+				net.minecraft.world.item.Items.LEATHER_LEGGINGS,
+				net.minecraft.world.item.Items.LEATHER_HELMET,
+				net.minecraft.world.item.Items.LEATHER_BOOTS}) {
+			if (Crafting.craft(p, piece)) {
+				Gear.equipArmor(p);
+			}
+		}
+	}
+
+	private static @Nullable Animal findLeatherPrey(ServerLevel level, PartnerEntity p) {
+		Animal best = null;
+		double bestD = Double.MAX_VALUE;
+		var box = new AABB(p.blockPosition()).inflate(28, 8, 28);
+		for (Animal a : level.getEntitiesOfClass(Animal.class, box, o -> o instanceof AbstractCow && isPrey(o))) {
+			if (com.dantemorrigan.partner.Territory.isProtected(level, a.blockPosition())) {
+				long sameKind = level.getEntitiesOfClass(Animal.class, box, o -> o.getType() == a.getType() && isPrey(o)).size();
+				if (sameKind <= 2) continue;
+			}
+			double d = a.distanceToSqr(p);
+			if (d < bestD) {
+				bestD = d;
+				best = a;
+			}
+		}
+		return best;
+	}
+
 	private static @Nullable Animal findPrey(ServerLevel level, PartnerEntity p) {
 		Animal best = null;
 		double bestD = Double.MAX_VALUE;
 		var box = new AABB(p.blockPosition()).inflate(24, 8, 24);
 		for (Animal a : level.getEntitiesOfClass(Animal.class, box, HuntJob::isPrey)) {
-			long sameKind = level.getEntitiesOfClass(Animal.class, box, o -> o.getType() == a.getType() && isPrey(o)).size();
-			if (sameKind <= 2) continue;
+			if (com.dantemorrigan.partner.Territory.isProtected(level, a.blockPosition())) {
+				long sameKind = level.getEntitiesOfClass(Animal.class, box, o -> o.getType() == a.getType() && isPrey(o)).size();
+				if (sameKind <= 2) continue;
+			}
 			double d = a.distanceToSqr(p);
 			if (d < bestD) {
 				bestD = d;

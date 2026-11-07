@@ -57,6 +57,7 @@ public final class PartnerBrain {
 	public final Smelter smelter = new Smelter();
 	public final Parkour parkour = new Parkour();
 	public final Initiative initiative = new Initiative(this);
+	public final CognitiveLayer cognition = new CognitiveLayer(this);
 	private final Map<Integer, Integer> ignoredTargets = new HashMap<>();
 	public final Set<BlockPos> badBlocks = new HashSet<>();
 	/** Free-mode steps that failed recently (step key → tick when it may be tried again). */
@@ -127,6 +128,7 @@ public final class PartnerBrain {
 		if ((order == PartnerOrder.PATROL || order == PartnerOrder.BUILD || order == PartnerOrder.FARM) && p.anchor() != null) PartnerFx.patrolMark(p, p.anchor());
 		PartnerFx.accepted(p);
 		p.speak("order_" + order.id);
+		cognition.onOrderGiven(order, by);
 	}
 
 	public void onHurt(DamageSource source) {
@@ -170,7 +172,8 @@ public final class PartnerBrain {
 				|| s.is(Items.BUCKET) || s.is(Items.WATER_BUCKET) || s.is(Items.FISHING_ROD)
 				|| s.is(Items.TOTEM_OF_UNDYING) || s.is(Items.LAPIS_LAZULI)
 				|| s.is(Items.OBSIDIAN) || s.is(Items.FLINT_AND_STEEL) || s.is(Items.BLAZE_ROD)
-				|| s.is(Items.BLAZE_POWDER) || s.is(Items.ENDER_PEARL) || s.is(Items.ENDER_EYE)) return true;
+				|| s.is(Items.BLAZE_POWDER) || s.is(Items.ENDER_PEARL) || s.is(Items.ENDER_EYE)
+				|| s.is(Items.GOLDEN_APPLE) || s.is(Items.ENCHANTED_GOLDEN_APPLE)) return true;
 		if (s.is(ItemTags.BEDS)) {
 			for (int i = 0; i < slot; i++) if (p.backpack().getItem(i).is(ItemTags.BEDS)) return false;
 			return true;
@@ -234,9 +237,20 @@ public final class PartnerBrain {
 		if (recover(level, owner)) return;
 		trackCalm(owner);
 		if (stayTogether(level, owner)) return;
+		cognition.checkOwnerEmergency(level, owner);
 		if (protect(level, owner)) return;
 		if (care(level, owner)) return;
 		lightTheWay(level, owner);
+		if (p.tickCount % 40 == 10 && !inFight()) {
+			Job thoughtJob = cognition.evaluate(level, owner, job != null && !selfJob);
+			if (p.strictFollow()) thoughtJob = null;
+			if (thoughtJob != null && (job == null || selfJob)) {
+				stopJob(level);
+				job = thoughtJob;
+				selfJob = true;
+				selfAnchor = owner.position();
+			}
+		}
 		if (p.tickCount % 20 == 0) {
 			Job own = initiative.think(level, owner, job != null && !selfJob);
 			if (p.strictFollow()) own = null; // told to follow: no side trips (the question or warning was still sent)
@@ -1501,6 +1515,11 @@ public final class PartnerBrain {
 		stopJob(level);
 		job = new BeatGameJob(true);
 		p.speak("order_portal");
+	}
+
+	public void prioritizeOwnerCareNow() {
+		this.careCooldown = 0;
+		this.giveFoodCooldown = 0;
 	}
 
 	public void engageQuestTarget(LivingEntity le) {

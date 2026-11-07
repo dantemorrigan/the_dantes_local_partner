@@ -37,12 +37,18 @@ public final class Crafting {
 	private static final Predicate<ItemStack> NETHERITE = s -> s.is(Items.NETHERITE_INGOT);
 	private static final Predicate<ItemStack> URU = com.dantemorrigan.partner.compat.InfinityCompat::isUruIngot;
 	private static final Predicate<ItemStack> COAL = s -> s.is(ItemTags.COALS);
+	private static final Predicate<ItemStack> LEATHER = s -> s.is(Items.LEATHER);
 	private static final Map<Item, Recipe> RECIPES = new LinkedHashMap<>();
 
 	static {
 		add(Items.STICK, 4, false, need(PLANKS, 2, Items.OAK_PLANKS));
 		add(Items.CRAFTING_TABLE, 1, false, need(PLANKS, 4, Items.OAK_PLANKS));
 		add(Items.TORCH, 4, false, need(COAL, 1, Items.COAL), need(STICK, 1, Items.STICK));
+		add(Items.LEATHER_HELMET, 1, false, need(LEATHER, 5, Items.LEATHER));
+		add(Items.LEATHER_CHESTPLATE, 1, false, need(LEATHER, 8, Items.LEATHER));
+		add(Items.LEATHER_LEGGINGS, 1, false, need(LEATHER, 7, Items.LEATHER));
+		add(Items.LEATHER_BOOTS, 1, false, need(LEATHER, 4, Items.LEATHER));
+		add(Items.GOLDEN_APPLE, 1, false, need(GOLD, 8, Items.GOLD_INGOT), need(s -> s.is(Items.APPLE), 1, Items.APPLE));
 		add(Items.SHEARS, 1, false, need(IRON, 2, Items.IRON_INGOT));
 		add(Items.FLINT_AND_STEEL, 1, false, need(IRON, 1, Items.IRON_INGOT), need(s -> s.is(Items.FLINT), 1, Items.FLINT));
 		add(Items.BLAZE_POWDER, 2, false, need(s -> s.is(Items.BLAZE_ROD), 1, Items.BLAZE_ROD));

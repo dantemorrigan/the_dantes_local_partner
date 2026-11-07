@@ -37,7 +37,7 @@ public final class PartnerChat {
 	private static final Set<String> GOOD = Set.of("ore_found", "ore_mined", "tree_done", "hunt_done", "smelt_done", "era_up", "table_packed", "furnace_placed", "furnace_packed", "campfire_placed", "good_morning", "hello", "back", "back_from_death", "crafted", "done_wood", "done_ore", "table_placed",
 			"order_follow", "order_wood", "order_ore", "order_guard", "order_patrol", "order_free", "order_give", "order_expedition", "order_build", "order_farm", "order_speedrun", "order_portal",
 			"dungeon_torched", "dungeon_looted", "traded", "poi_dungeon", "poi_village", "poi_biome", "poi_structure", "poi_resource", "build_done", "farm_pen_built", "tamed_pet",
-			"totem_saved", "enchanted_gear", "caught_fish", "obsidian_ready", "portal_built", "piglin_barter", "eyes_ready", "end_portal_lit", "dragon_slain");
+			"totem_saved", "enchanted_gear", "caught_fish", "obsidian_ready", "portal_built", "piglin_barter", "eyes_ready", "end_portal_lit", "dragon_slain", "gave_leather_tunic");
 
 	public static Tone toneOf(String key) {
 		if (ALERT.contains(key)) return Tone.ALERT;

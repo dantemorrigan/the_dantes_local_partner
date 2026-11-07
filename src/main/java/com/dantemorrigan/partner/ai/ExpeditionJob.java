@@ -379,7 +379,7 @@ public final class ExpeditionJob implements Job {
 		return false;
 	}
 
-	private static void performTrades(PartnerBrain brain, ServerLevel level, AbstractVillager v) {
+	public static void performTrades(PartnerBrain brain, ServerLevel level, AbstractVillager v) {
 		PartnerEntity p = brain.p;
 		var bag = p.backpack();
 		Map<String, int[]> gained = new LinkedHashMap<>();
