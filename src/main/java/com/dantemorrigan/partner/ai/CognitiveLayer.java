@@ -84,7 +84,9 @@ public final class CognitiveLayer {
 
 		// 1. We are in The End: priority is defeating the Ender Dragon!
 		if (level.dimension() == Level.END) {
-			if (canThink("in_end", 20 * 90, false)) {
+			if (PartnerSquad.canAutonomouslyFormSquad(owner, level) && canThink("squad_end", 20 * 180, false)) {
+				PartnerSquad.assembleSquad(owner, p, "end", true);
+			} else if (canThink("in_end", 20 * 90, false)) {
 				think("think_in_end");
 			}
 			if (!busyWithExplicitJob && !brain.inFight()) {
@@ -93,9 +95,11 @@ public final class CognitiveLayer {
 			return null;
 		}
 
-		// 2. We are in The Nether: gather everything needed at this stage (Blaze Rods, Ender Pearls, Gold, Ancient Debris)
+		// 2. We are in The Nether: gather everything needed at this stage (and summon the Expedition Squad to storm the Nether!)
 		if (level.dimension() == Level.NETHER) {
-			if (canThink("in_nether", 20 * 75, false)) {
+			if (PartnerSquad.canAutonomouslyFormSquad(owner, level) && canThink("squad_nether", 20 * 180, false)) {
+				PartnerSquad.assembleSquad(owner, p, "nether", true);
+			} else if (canThink("in_nether", 20 * 75, false)) {
 				int rods = Gear.count(bag, Items.BLAZE_ROD) + Gear.count(bag, Items.BLAZE_POWDER) / 2;
 				int pearls = Gear.count(bag, Items.ENDER_PEARL) + Gear.count(bag, Items.ENDER_EYE);
 				String focus = (rods < 6 || pearls < 12) ? "стержни ифрита, жемчуг Эндера и золото" : "золото и древние обломки";
@@ -201,6 +205,16 @@ public final class CognitiveLayer {
 								PartnerChat.laterButton()
 						));
 				lastAnyThought = p.tickCount;
+			}
+		}
+
+		// 8. Autonomous "ЭКСПЕДИЦИЯ" (Squad) Initiative: when ready to mine Diamond Armor for the whole team or on a major expedition!
+		if (PartnerSquad.canAutonomouslyFormSquad(owner, level)
+				&& (p.order() == PartnerOrder.EXPEDITION || p.order() == PartnerOrder.SPEEDRUN
+				|| (brain.era() >= 2 && !PartnerSquad.isPlayerInFullDiamond(owner) && p.tickCount > 20 * 90))) {
+			if (canThink("auto_squad", 20 * 240, false)) {
+				String mission = p.order() == PartnerOrder.SPEEDRUN ? "nether" : "diamond";
+				PartnerSquad.assembleSquad(owner, p, mission, true);
 			}
 		}
 

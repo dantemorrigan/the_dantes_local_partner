@@ -222,7 +222,10 @@ public final class PartnerBrain {
 			p.stopRiding();
 		}
 		if (recovering() && recover(level, owner)) return; // even if the owner already respawned elsewhere
-		if (owner.level() != p.level() && p.order() != PartnerOrder.SPEEDRUN && !(job instanceof BeatGameJob)) {
+		if (p.isSquadMember()) {
+			PartnerSquad.tickMember(this, level, owner);
+			if (owner.level() != p.level()) return;
+		} else if (owner.level() != p.level() && p.order() != PartnerOrder.SPEEDRUN && !(job instanceof BeatGameJob)) {
 			if (!InfinityCompat.partnerWaitsOutside(owner.level().dimension())) PartnerManager.travel(owner);
 			return;
 		}
@@ -231,17 +234,19 @@ public final class PartnerBrain {
 		watchBackpack(owner);
 		if (parkour.tickAir(p)) return; // mid-jump: let it land
 		if (sleep(level, owner)) return;
-		if (p.tickCount % 40 == 0) checkEra();
+		if (!p.isSquadMember()) {
+			if (p.tickCount % 40 == 0) checkEra();
+			if (p.tickCount % 60 == 0) scanAndMarkPois(level);
+		}
 		if (p.tickCount % 20 == 0) recordExplorationStep();
-		if (p.tickCount % 60 == 0) scanAndMarkPois(level);
 		if (recover(level, owner)) return;
 		trackCalm(owner);
 		if (stayTogether(level, owner)) return;
-		cognition.checkOwnerEmergency(level, owner);
+		if (!p.isSquadMember()) cognition.checkOwnerEmergency(level, owner);
 		if (protect(level, owner)) return;
 		if (care(level, owner)) return;
 		lightTheWay(level, owner);
-		if (p.tickCount % 40 == 10 && !inFight()) {
+		if (!p.isSquadMember() && p.tickCount % 40 == 10 && !inFight()) {
 			Job thoughtJob = cognition.evaluate(level, owner, job != null && !selfJob);
 			if (p.strictFollow()) thoughtJob = null;
 			if (thoughtJob != null && (job == null || selfJob)) {
@@ -251,7 +256,7 @@ public final class PartnerBrain {
 				selfAnchor = owner.position();
 			}
 		}
-		if (p.tickCount % 20 == 0) {
+		if (!p.isSquadMember() && p.tickCount % 20 == 0) {
 			Job own = initiative.think(level, owner, job != null && !selfJob);
 			if (p.strictFollow()) own = null; // told to follow: no side trips (the question or warning was still sent)
 			if (own != null && (job == null || selfJob)) {
@@ -741,7 +746,8 @@ public final class PartnerBrain {
 				} else if ((finished instanceof GiveJob || finished instanceof StoreJob) && restUntil > p.tickCount) {
 					say("resting");
 				} else {
-					job = order == PartnerOrder.EXPEDITION ? new ExpeditionJob() : new AutoJob();
+					job = p.isSquadMember() ? PartnerSquad.createMissionJob(this, level, owner)
+							: order == PartnerOrder.EXPEDITION ? new ExpeditionJob() : new AutoJob();
 				}
 			} else if (order == PartnerOrder.BUILD) {
 				p.setOrderQuiet(PartnerOrder.FOLLOW);
@@ -772,7 +778,8 @@ public final class PartnerBrain {
 						say("rested");
 					}
 					if (roamStart < 0) roamStart = p.tickCount;
-					job = order == PartnerOrder.EXPEDITION ? new ExpeditionJob() : new AutoJob();
+					job = p.isSquadMember() ? PartnerSquad.createMissionJob(this, level, owner)
+							: order == PartnerOrder.EXPEDITION ? new ExpeditionJob() : new AutoJob();
 				}
 			}
 			case WOOD, ORE, GIVE -> p.setOrderQuiet(PartnerOrder.FOLLOW);

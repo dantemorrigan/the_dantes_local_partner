@@ -141,6 +141,7 @@ public final class PartnerManager {
 		}
 		LIVE.remove(owner.getUUID());
 		remove(owner.getUUID());
+		com.dantemorrigan.partner.ai.PartnerSquad.disband(owner);
 		sendStatus(owner);
 	}
 
@@ -201,6 +202,30 @@ public final class PartnerManager {
 				sendStatus(owner);
 				return;
 			}
+			case "squad_diamond" -> {
+				com.dantemorrigan.partner.ai.PartnerSquad.assembleSquad(owner, partner, "diamond", false);
+				return;
+			}
+			case "squad_nether" -> {
+				com.dantemorrigan.partner.ai.PartnerSquad.assembleSquad(owner, partner, "nether", false);
+				return;
+			}
+			case "squad_end" -> {
+				com.dantemorrigan.partner.ai.PartnerSquad.assembleSquad(owner, partner, "end", false);
+				return;
+			}
+			case "squad_harvest" -> {
+				com.dantemorrigan.partner.ai.PartnerSquad.assembleSquad(owner, partner, "harvest", false);
+				return;
+			}
+			case "squad_keep" -> {
+				com.dantemorrigan.partner.ai.PartnerSquad.keepForever(owner);
+				return;
+			}
+			case "squad_disband" -> {
+				com.dantemorrigan.partner.ai.PartnerSquad.disband(owner);
+				return;
+			}
 			case "skin_next" -> {
 				partner.cycleSkin(1);
 				sendStatus(owner);
@@ -224,6 +249,7 @@ public final class PartnerManager {
 	public static boolean isCurrent(PartnerEntity partner) {
 		// Before the manager has loaded its records (world still starting) nothing may be thrown away.
 		if (server == null || !loaded) return true;
+		if (partner.isSquadMember()) return com.dantemorrigan.partner.ai.PartnerSquad.isActiveMember(partner);
 		if (partner.getOwnerUUID() == null) return false;
 		CompoundTag rec = records.get(partner.getOwnerUUID().toString());
 		if (rec == null) return false;
@@ -233,6 +259,7 @@ public final class PartnerManager {
 	}
 
 	public static void onPartnerDeath(PartnerEntity partner) {
+		if (partner.isSquadMember()) return;
 		ServerPlayer owner = partner.getOwnerPlayer();
 		UUID ownerId = partner.getOwnerUUID();
 		if (ownerId == null) return;
@@ -467,13 +494,15 @@ public final class PartnerManager {
 		}
 		Entity moved = partner.teleport(new TeleportTransition(level, spot, Vec3.ZERO, partner.getYRot(), 0f, TeleportTransition.DO_NOTHING));
 		if (moved instanceof PartnerEntity p) {
-			CompoundTag rec = record(owner);
-			if (rec != null) {
-				CompoundTag r = rec.copy();
-				r.putString("entity", p.getUUID().toString());
-				put(owner.getUUID(), r);
+			if (!p.isSquadMember()) {
+				CompoundTag rec = record(owner);
+				if (rec != null) {
+					CompoundTag r = rec.copy();
+					r.putString("entity", p.getUUID().toString());
+					put(owner.getUUID(), r);
+				}
+				LIVE.put(owner.getUUID(), p);
 			}
-			LIVE.put(owner.getUUID(), p);
 			return p;
 		}
 		return null;
@@ -486,7 +515,7 @@ public final class PartnerManager {
 		targetLevel.getChunkSource().addTicketWithRadius(LocalPartner.ROAM_TICKET, new net.minecraft.world.level.ChunkPos(((int) Math.floor(spot.x)) >> 4, ((int) Math.floor(spot.z)) >> 4), 2);
 		Entity moved = partner.teleport(new TeleportTransition(targetLevel, spot, Vec3.ZERO, yRot, 0f, TeleportTransition.DO_NOTHING));
 		if (moved instanceof PartnerEntity p) {
-			if (ownerId != null) {
+			if (ownerId != null && !p.isSquadMember()) {
 				CompoundTag rec = records.get(ownerId.toString());
 				if (rec != null) {
 					CompoundTag r = rec.copy();

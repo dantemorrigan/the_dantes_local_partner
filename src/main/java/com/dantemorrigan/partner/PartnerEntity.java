@@ -71,6 +71,9 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 	private int foodTick, eating;
 	private float lastMoveDist;
 	private ItemStack eatingStack = ItemStack.EMPTY;
+	private boolean squadMember;
+	private String squadRole = "";
+	private String squadMission = "";
 
 	public PartnerEntity(EntityType<? extends PartnerEntity> type, Level level) {
 		super(type, level);
@@ -119,6 +122,34 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 		this.setCustomNameVisible(true);
 		this.entityData.set(DATA_SKIN, this.random.nextInt(SKINS.length));
 		this.order = PartnerOrder.FOLLOW;
+	}
+
+	/** Configures this entity as an Expedition Squad buddy with a distinct role, skin, and mission. */
+	public void setupSquadMember(ServerPlayer player, int skinIdx, String roleKey, String missionId) {
+		this.owner = player.getUUID();
+		this.squadMember = true;
+		this.squadRole = roleKey;
+		this.squadMission = missionId;
+		this.setCustomName(Component.translatable("entity.local_partner.squad." + roleKey));
+		this.setCustomNameVisible(true);
+		this.entityData.set(DATA_SKIN, Math.floorMod(skinIdx, SKINS.length));
+		this.order = PartnerOrder.FREE;
+	}
+
+	public boolean isSquadMember() {
+		return squadMember;
+	}
+
+	public String squadRole() {
+		return squadRole;
+	}
+
+	public String squadMission() {
+		return squadMission;
+	}
+
+	public void setSquadMission(String missionId) {
+		this.squadMission = missionId;
 	}
 
 	// ------------------------------------------------------------------ ownership
@@ -639,6 +670,9 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 
 	/** A short line in the owner's chat, styled by its kind (see {@link PartnerChat}). */
 	public void speak(String key, Object... args) {
+		if (squadMember && !key.startsWith("squad_") && !key.equals("totem_saved") && !key.equals("dragon_slain") && !key.equals("bye")) {
+			return;
+		}
 		ServerPlayer p = getOwnerPlayer();
 		if (p != null) p.sendSystemMessage(PartnerChat.line(this, PartnerChat.toneOf(key), Component.translatable("partner.local_partner.say." + key, args)));
 	}
@@ -706,6 +740,9 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 		output.putFloat("Saturation", saturation);
 		output.putFloat("Exhaustion", exhaustion);
 		if (!eatingStack.isEmpty()) output.store("Eating", ItemStack.CODEC, eatingStack); // never lose a half-eaten snack
+		output.putBoolean("SquadMember", squadMember);
+		if (!squadRole.isEmpty()) output.putString("SquadRole", squadRole);
+		if (!squadMission.isEmpty()) output.putString("SquadMission", squadMission);
 		backpack.storeAsItemList(output.list("Backpack", ItemStack.CODEC));
 		brain.save(output);
 	}
@@ -715,6 +752,9 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 		super.readAdditionalSaveData(input);
 		owner = input.read("Owner", UUIDUtil.CODEC).orElse(null);
 		strictFollow = input.getBooleanOr("Strict", false);
+		squadMember = input.getBooleanOr("SquadMember", false);
+		squadRole = input.getStringOr("SquadRole", "");
+		squadMission = input.getStringOr("SquadMission", "");
 		PartnerOrder o = PartnerOrder.byId(input.getStringOr("Order", "follow"));
 		order = o == null || o.oneShot() ? PartnerOrder.FOLLOW : o;
 		anchor = input.read("Anchor", BlockPos.CODEC).orElse(null);

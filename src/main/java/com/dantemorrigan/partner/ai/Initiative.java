@@ -112,6 +112,18 @@ public final class Initiative {
 					PartnerChat.laterButton()));
 			return null;
 		}
+		// Offer the "ЭКСПЕДИЦИЯ" (Squad of buddy bots) initiative when no squad is currently active!
+		if (!PartnerSquad.hasActiveSquad(owner) && ready("expedition_squad")) {
+			ask(owner, "ask_squad", List.of(
+					PartnerChat.button(Component.translatable("partner.local_partner.btn.squad_diamond"), "/partner squad diamond",
+							Component.translatable("partner.local_partner.btn.squad_diamond.hover"), PartnerChat.ORE),
+					PartnerChat.button(Component.translatable("partner.local_partner.btn.squad_nether"), "/partner squad nether",
+							Component.translatable("partner.local_partner.btn.squad_nether.hover"), PartnerChat.WOOD),
+					PartnerChat.button(Component.translatable("partner.local_partner.btn.squad_harvest"), "/partner squad harvest",
+							Component.translatable("partner.local_partner.btn.squad_harvest.hover"), PartnerChat.FOLLOW),
+					PartnerChat.laterButton()));
+			return null;
+		}
 		// Nothing left to do on its own: ask what next.
 		if (p.order() == PartnerOrder.FOLLOW && !p.strictFollow() && brain.nothingToImprove() && ready("idle")) {
 			ask(owner, "ask_what", List.of(PartnerChat.orderButton("wood", PartnerChat.WOOD), PartnerChat.orderButton("ore", PartnerChat.ORE),
