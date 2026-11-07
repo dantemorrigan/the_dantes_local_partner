@@ -17,62 +17,378 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
+import org.jspecify.annotations.Nullable;
 
 /**
- * Long-distance walking and self-rescue: the pathfinder only plans a few dozen blocks, so the partner walks toward
- * far goals through surface waypoints ~12 blocks apart, jumps gaps on the way, veers around obstacles, and when
- * genuinely trapped (in a hole, behind foliage/cliff, across water) digs its way out, pillars up or bridges across.
+ * Smart long-distance navigation and obstacle handling:
+ * <ul>
+ *   <li><b>Dry Contour Bypass:</b> Scans rays ahead to smoothly walk around ponds, cliffs, lava, and dense obstacles on dry land.</li>
+ *   <li><b>Straight-Line Causeway:</b> When a river or chasm must be crossed (up to 24 blocks wide), locks a strict 1-block-wide straight line toward the goal and steps onto each block as it places it.</li>
+ *   <li><b>Surface Sprint-Swimming:</b> Across wide lakes/oceans (&gt; 24 blocks) or when already in water, sprint-swims in a straight line to the far shore without placing chaotic blocks in the water.</li>
+ *   <li><b>Self-Rescue on Land:</b> Clears blocking foliage immediately, jumps ledges, and digs a clean 1×2 staircase or pillars out of pits.</li>
+ * </ul>
  */
 public final class Travel {
+	private static final int MAX_BRIDGE_SPAN = 24;
+
 	private Vec3 lastPos = Vec3.ZERO;
-	private int stuck, veer;
-	private float veerAngle;
+	private int stuck;
+	private float bypassAngle;
+	private int bypassTicks;
+	private int bypassSign = 1;
+
+	// Locked straight-line bridge state so water crossings are always a clean 1-block-wide line
+	private @Nullable BlockPos bridgeOrigin;
+	private @Nullable BlockPos bridgeTip;
+	private Vec3 bridgeDir = Vec3.ZERO;
+	private int bridgeSteps;
 
 	/** One tick of travel toward {@code goal}. Returns false when it had to call SOS / evacuate after all self-rescue tries. */
 	public boolean tick(PartnerBrain brain, ServerLevel level, Vec3 goal, double speed) {
 		PartnerEntity p = brain.p;
 		Vec3 to = goal.subtract(p.position()).multiply(1, 0, 1);
 		double dist = to.length();
-		if (dist < 1) return true;
-		Vec3 dir = to.normalize();
-		if (veerAngle != 0) dir = dir.yRot(veerAngle);
-		Vec3 wp = dist < 14 ? goal : p.position().add(dir.scale(12));
-		if (dist >= 14) {
+		if (dist < 1.0) {
+			clearBridge();
+			return true;
+		}
+		Vec3 straightDir = to.normalize();
+
+		// 1. Active straight-line bridge across narrow/medium water or chasm
+		if (bridgeOrigin != null && bridgeTip != null) {
+			if (!p.isInWater() && bridgeSteps <= MAX_BRIDGE_SPAN + 4
+					&& PartnerBrain.horizontalDistSqr(p.position(), Vec3.atBottomCenterOf(bridgeTip)) <= 9.0) {
+				if (tickStraightBridge(brain, level, speed)) {
+					updateProgress(p);
+					return true;
+				}
+			}
+			clearBridge();
+		}
+
+		// 2. In water: swim straight across the surface toward the goal (never place random blocks while swimming)
+		if (p.isInWater()) {
+			clearBridge();
+			swimStraight(brain, level, straightDir, goal, dist);
+			updateProgress(p);
+			return true;
+		}
+
+		// 3. Scan ahead for water, lava, or steep cliffs and find a dry land bypass if one exists
+		if (isDirectLineBlocked(level, p.position(), straightDir, Math.min(dist, 12.0))) {
+			Float detour = findDryBypassAngle(level, p.position(), straightDir, Math.min(dist, 14.0));
+			if (detour != null) {
+				bypassAngle = detour;
+				bypassSign = detour >= 0 ? 1 : -1;
+				bypassTicks = 25;
+			} else {
+				// No dry detour within ±80°: face the obstacle straight on
+				bypassAngle = 0;
+				bypassTicks = 0;
+				if (tryHandleFrontWaterOrChasm(brain, level, straightDir, dist, speed)) {
+					updateProgress(p);
+					return true;
+				}
+			}
+		} else if (bypassTicks > 0) {
+			bypassTicks--;
+			if (bypassTicks == 0) bypassAngle = 0;
+		} else {
+			bypassAngle = 0;
+		}
+
+		Vec3 moveDir = bypassAngle != 0 ? straightDir.yRot(bypassAngle) : straightDir;
+
+		// Proactively clear leaves, bushes, or cobwebs right in front so forests never stall movement
+		clearFoliageAhead(brain, level, moveDir);
+
+		Vec3 wp = (dist < 14 && bypassAngle == 0) ? goal : p.position().add(moveDir.scale(Math.min(dist, 12.0)));
+		if (dist >= 14 || bypassAngle != 0) {
 			BlockPos top = findOpenSurface(level, BlockPos.containing(wp));
 			wp = Vec3.atBottomCenterOf(top);
 		}
-		if (p.tickCount % 15 == 0 || p.getNavigation().isDone()) p.getNavigation().moveTo(wp.x, wp.y, wp.z, speed);
+		if (p.tickCount % 12 == 0 || p.getNavigation().isDone()) {
+			p.getNavigation().moveTo(wp.x, wp.y, wp.z, speed);
+		}
 		brain.jumpIfBlocked(wp);
 
-		// Active self-rescue while stuck: clear leaves/blocks ahead, bridge across water/drops, or pillar out of a pit.
+		// Active land self-rescue while stuck: dig staircase up a cliff or pillar out of a pit
 		if (stuck >= 1 && p.tickCount % 8 == 0) {
-			selfRescue(brain, level, dir, wp);
+			selfRescueLand(brain, level, straightDir, wp);
 		}
 
 		if (p.tickCount % 20 == 0) {
-			if (p.position().distanceToSqr(lastPos) < 1.2) {
-				// Blocked: try going around (alternate sides, wider each time) and trigger self-rescue.
+			if (p.position().distanceToSqr(lastPos) < 1.0) {
 				stuck++;
-				veerAngle = (float) Math.toRadians((stuck % 2 == 0 ? 1 : -1) * Math.min(95, 35 * ((stuck + 1) / 2)));
-				veer = 5;
+				// Alternate preferred contour side if stuck on terrain
+				if (stuck % 2 == 0) bypassSign = -bypassSign;
 				if (stuck == 4) brain.report("self_unstuck");
-			} else if (veer > 0 && --veer == 0) {
-				veerAngle = 0;
+			} else {
+				stuck = Math.max(0, stuck - 1);
 			}
-			if (p.position().distanceToSqr(lastPos) >= 1.2) stuck = Math.max(0, stuck - 1);
 			lastPos = p.position();
 		}
 		if (stuck >= 8) {
 			stuck = 0;
+			clearBridge();
 			brain.emergencyUnstuck(level);
 			return false;
 		}
 		return true;
 	}
 
+	private void updateProgress(PartnerEntity p) {
+		if (p.tickCount % 20 == 0) {
+			if (p.position().distanceToSqr(lastPos) >= 0.6) {
+				stuck = Math.max(0, stuck - 1);
+			}
+			lastPos = p.position();
+		}
+	}
+
+	private void clearBridge() {
+		bridgeOrigin = null;
+		bridgeTip = null;
+		bridgeSteps = 0;
+	}
+
+	/** Checks whether the straight line over the next few blocks hits water, lava, a sheer wall, or a deep drop. */
+	private static boolean isDirectLineBlocked(ServerLevel level, Vec3 start, Vec3 dir, double maxDist) {
+		int prevY = BlockPos.containing(start).getY();
+		for (double d = 2.5; d <= maxDist; d += 2.5) {
+			BlockPos sample = BlockPos.containing(start.x + dir.x * d, start.y, start.z + dir.z * d);
+			if (!level.hasChunkAt(sample)) break;
+			BlockPos top = level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, sample);
+			if (!level.getFluidState(top).isEmpty() || !level.getFluidState(top.below()).isEmpty()) {
+				return true;
+			}
+			if (Math.abs(top.getY() - prevY) > 3) {
+				return true;
+			}
+			prevY = top.getY();
+		}
+		return false;
+	}
+
+	/**
+	 * Scans rays from ±20° to ±80° around {@code straightDir} to find a dry, walkable contour around water or cliffs.
+	 * Returns the best detour angle in radians, or {@code null} if all forward rays are blocked.
+	 */
+	private @Nullable Float findDryBypassAngle(ServerLevel level, Vec3 start, Vec3 straightDir, double lookAhead) {
+		int[] degs = {20, 35, 50, 65, 80};
+		for (int deg : degs) {
+			for (int sign : new int[]{bypassSign, -bypassSign}) {
+				float rad = (float) Math.toRadians(deg * sign);
+				Vec3 ray = straightDir.yRot(rad);
+				if (isRayDryAndWalkable(level, start, ray, lookAhead)) {
+					return rad;
+				}
+			}
+		}
+		return null;
+	}
+
+	private static boolean isRayDryAndWalkable(ServerLevel level, Vec3 start, Vec3 ray, double lookAhead) {
+		int prevY = BlockPos.containing(start).getY();
+		double maxD = Math.max(4.0, Math.min(lookAhead, 12.0));
+		for (double d = 3.0; d <= maxD; d += 3.0) {
+			BlockPos sample = BlockPos.containing(start.x + ray.x * d, start.y, start.z + ray.z * d);
+			if (!level.hasChunkAt(sample)) return false;
+			BlockPos top = level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, sample);
+			if (!level.getFluidState(top).isEmpty() || !level.getFluidState(top.below()).isEmpty()) {
+				return false;
+			}
+			if (Math.abs(top.getY() - prevY) > 2) {
+				return false;
+			}
+			if (level.getBlockState(top).is(BlockTags.LOGS)) {
+				return false;
+			}
+			prevY = top.getY();
+		}
+		return true;
+	}
+
+	/**
+	 * When no dry bypass exists and water or a drop is right in front of the partner:
+	 * - If the span across is &lt;= {@link #MAX_BRIDGE_SPAN}, starts a locked straight-line 1-block bridge.
+	 * - If the water is wider (large lake / ocean), steps directly into the water to sprint-swim straight across.
+	 */
+	private boolean tryHandleFrontWaterOrChasm(PartnerBrain brain, ServerLevel level, Vec3 straightDir, double distToGoal, double speed) {
+		PartnerEntity p = brain.p;
+		BlockPos feet = p.blockPosition();
+		Direction stepDir = Direction.getApproximateNearest(straightDir.x, 0, straightDir.z);
+		BlockPos ahead = feet.relative(stepDir);
+		BlockPos aheadBelow = ahead.below();
+
+		boolean waterAhead = !level.getFluidState(aheadBelow).isEmpty() || !level.getFluidState(ahead).isEmpty();
+		boolean chasmAhead = level.getBlockState(aheadBelow).isAir() && level.getBlockState(aheadBelow.below()).isAir();
+		if (!waterAhead && !chasmAhead) return false;
+
+		int span = measureCrossingSpan(level, feet, straightDir, MAX_BRIDGE_SPAN + 4);
+		if (waterAhead && span > 6) {
+			// Water body wider than a small stream: dive in and fast-swim straight across!
+			swimStraight(brain, level, straightDir, p.position().add(straightDir.scale(Math.min(distToGoal, 16.0))), distToGoal);
+			return true;
+		}
+
+		// Start a straight 1-block-wide bridge locked to straightDir
+		int bridgeY = feet.getY() - 1;
+		if (!level.getFluidState(ahead).isEmpty()) {
+			bridgeY = ahead.getY();
+		}
+		bridgeOrigin = new BlockPos(feet.getX(), bridgeY, feet.getZ());
+		bridgeTip = bridgeOrigin;
+		bridgeDir = straightDir;
+		bridgeSteps = 0;
+		return tickStraightBridge(brain, level, speed);
+	}
+
+	/** Measures how many blocks of water or air chasm lie ahead along {@code dir} before solid dry ground resumes. */
+	private static int measureCrossingSpan(ServerLevel level, BlockPos feet, Vec3 dir, int maxCheck) {
+		int span = 0;
+		for (int d = 1; d <= maxCheck; d++) {
+			BlockPos sample = BlockPos.containing(feet.getX() + 0.5 + dir.x * d, feet.getY(), feet.getZ() + 0.5 + dir.z * d);
+			if (!level.hasChunkAt(sample)) return maxCheck + 1;
+			BlockPos top = level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, sample);
+			boolean wet = !level.getFluidState(top).isEmpty() || !level.getFluidState(top.below()).isEmpty();
+			boolean chasm = feet.getY() - top.getY() >= 4;
+			if (wet || chasm) {
+				span = d;
+			} else if (span > 0) {
+				return span;
+			}
+		}
+		return maxCheck + 1;
+	}
+
+	/**
+	 * Executes one tick of straight-line 1-block-wide bridging.
+	 * Uses a 4-connected Bresenham step along {@link #bridgeDir} so blocks only ever form a single straight line.
+	 */
+	private boolean tickStraightBridge(PartnerBrain brain, ServerLevel level, double speed) {
+		PartnerEntity p = brain.p;
+		if (bridgeOrigin == null || bridgeTip == null) return false;
+
+		// Walk onto the current bridge tip first before extending the next block
+		Vec3 tipStand = new Vec3(bridgeTip.getX() + 0.5, bridgeTip.getY() + 1.0, bridgeTip.getZ() + 0.5);
+		if (PartnerBrain.horizontalDistSqr(p.position(), tipStand) > 1.3 * 1.3) {
+			p.getNavigation().stop();
+			p.getLookControl().setLookAt(tipStand.x, tipStand.y + 1.0, tipStand.z, 30f, 30f);
+			p.getMoveControl().setWantedPosition(tipStand.x, tipStand.y, tipStand.z, PartnerEntity.WALK);
+			if (tipStand.y > p.getY() + 0.2 && p.onGround()) {
+				p.getJumpControl().jump();
+			}
+			return true;
+		}
+
+		BlockPos next = nextBresenhamStep(bridgeOrigin, bridgeTip, bridgeDir);
+		if (Territory.isProtected(level, next)) return false;
+
+		// Clear any leaves or plants above the next bridge block
+		for (BlockPos clear : new BlockPos[]{next.above(), next.above(2)}) {
+			BlockState s = level.getBlockState(clear);
+			if (!s.isAir() && (s.is(BlockTags.LEAVES) || s.canBeReplaced())) {
+				level.destroyBlock(clear, true, p);
+			}
+		}
+
+		BlockState nextState = level.getBlockState(next);
+		boolean needsBlock = nextState.isAir() || !nextState.getFluidState().isEmpty() || nextState.canBeReplaced();
+		if (!needsBlock) {
+			// Reached solid dry ground on the far side! Step onto it and finish bridging.
+			Vec3 landPos = new Vec3(next.getX() + 0.5, next.getY() + 1.0, next.getZ() + 0.5);
+			p.getNavigation().stop();
+			p.getMoveControl().setWantedPosition(landPos.x, landPos.y, landPos.z, speed);
+			if (landPos.y > p.getY() + 0.2 && p.onGround()) {
+				p.getJumpControl().jump();
+			}
+			return false;
+		}
+
+		placeScaffold(p, level, next);
+		bridgeTip = next;
+		bridgeSteps++;
+
+		Vec3 nextStand = new Vec3(next.getX() + 0.5, next.getY() + 1.0, next.getZ() + 0.5);
+		p.getNavigation().stop();
+		p.getLookControl().setLookAt(nextStand.x, nextStand.y + 1.0, nextStand.z, 30f, 30f);
+		p.getMoveControl().setWantedPosition(nextStand.x, nextStand.y, nextStand.z, PartnerEntity.WALK);
+		if (nextStand.y > p.getY() + 0.2 && p.onGround()) {
+			p.getJumpControl().jump();
+		}
+		return true;
+	}
+
+	/**
+	 * Picks the single 4-connected horizontal neighbor of {@code tip} that moves forward along {@code dir}
+	 * while minimizing perpendicular distance to the ideal line from {@code origin} along {@code dir}.
+	 */
+	private static BlockPos nextBresenhamStep(BlockPos origin, BlockPos tip, Vec3 dir) {
+		BlockPos best = tip.relative(Direction.getApproximateNearest(dir.x, 0, dir.z));
+		double bestErr = Double.MAX_VALUE;
+		for (Direction d : Direction.Plane.HORIZONTAL) {
+			double dot = d.getStepX() * dir.x + d.getStepZ() * dir.z;
+			if (dot <= 0.05) continue;
+			BlockPos cand = tip.relative(d);
+			double relX = cand.getX() - origin.getX();
+			double relZ = cand.getZ() - origin.getZ();
+			// Perpendicular distance from cand to the line (origin + t * dir)
+			double perp = Math.abs(relX * (-dir.z) + relZ * dir.x);
+			if (perp < bestErr) {
+				bestErr = perp;
+				best = cand;
+			}
+		}
+		return best;
+	}
+
+	/** Swims straight across water at high speed on the surface and climbs out cleanly onto the far bank. */
+	private void swimStraight(PartnerBrain brain, ServerLevel level, Vec3 straightDir, Vec3 goal, double dist) {
+		PartnerEntity p = brain.p;
+		p.getNavigation().stop();
+		p.setSwimming(true);
+		p.setSprinting(true);
+		p.getJumpControl().jump();
+		Vec3 swimWp = dist < 14.0 ? goal : p.position().add(straightDir.scale(12.0));
+		p.getLookControl().setLookAt(swimWp.x, p.getEyeY(), swimWp.z, 30f, 30f);
+		p.getMoveControl().setWantedPosition(swimWp.x, p.getY() + 0.6, swimWp.z, PartnerEntity.CATCH_UP);
+
+		Vec3 vel = p.getDeltaMovement();
+		p.setDeltaMovement(straightDir.x * 0.28, Math.max(vel.y, 0.04), straightDir.z * 0.28);
+
+		// If right against a shore bank, hop up or clear blocking shore foliage/dirt at head height
+		Direction facing = Direction.getApproximateNearest(straightDir.x, 0, straightDir.z);
+		BlockPos ahead = p.blockPosition().relative(facing);
+		if (!level.getBlockState(ahead).isAir() && level.getBlockState(ahead.above()).isAir() && level.getBlockState(ahead.above(2)).isAir()) {
+			p.setDeltaMovement(straightDir.x * 0.32, 0.42, straightDir.z * 0.32);
+		}
+		BlockState aheadTop = level.getBlockState(ahead.above());
+		if (!aheadTop.isAir() && !Territory.isProtected(level, ahead.above())
+				&& (aheadTop.is(BlockTags.LEAVES) || WorldScan.diggable(aheadTop))) {
+			brain.breaker.tick(p, level, ahead.above());
+		}
+	}
+
+	/** Breaks leaves, cobwebs, or bushes directly blocking the walking path so forests don't cause detours. */
+	private static void clearFoliageAhead(PartnerBrain brain, ServerLevel level, Vec3 dir) {
+		PartnerEntity p = brain.p;
+		Direction facing = Direction.getApproximateNearest(dir.x, 0, dir.z);
+		BlockPos ahead = p.blockPosition().relative(facing);
+		for (BlockPos check : new BlockPos[]{ahead.above(), ahead}) {
+			BlockState s = level.getBlockState(check);
+			if (!s.isAir() && !Territory.isProtected(level, check)
+					&& (s.is(BlockTags.LEAVES) || s.is(Blocks.COBWEB) || s.is(Blocks.SWEET_BERRY_BUSH) || s.is(Blocks.BAMBOO))) {
+				level.destroyBlock(check, true, p);
+				p.swing(InteractionHand.MAIN_HAND);
+				return;
+			}
+		}
+	}
+
 	private static BlockPos findOpenSurface(ServerLevel level, BlockPos approx) {
 		BlockPos best = level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, approx);
-		for (int r = 0; r <= 3; r++) {
+		for (int r = 0; r <= 4; r++) {
 			for (int dx = -r; dx <= r; dx++) {
 				for (int dz = -r; dz <= r; dz++) {
 					BlockPos cand = level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, approx.offset(dx, 0, dz));
@@ -86,21 +402,22 @@ public final class Travel {
 		return best;
 	}
 
-	/** Uses player-like maneuvers to get out of a trap: break blocking leaves/stone, bridge a gap, or pillar out of a hole. */
-	private void selfRescue(PartnerBrain brain, ServerLevel level, Vec3 dir, Vec3 wp) {
+	/** Land self-rescue when genuinely trapped in a pit or against an unavoidable cliff wall. */
+	private void selfRescueLand(PartnerBrain brain, ServerLevel level, Vec3 straightDir, Vec3 wp) {
 		PartnerEntity p = brain.p;
-		Direction facing = Direction.getApproximateNearest(dir.x, 0, dir.z);
+		if (p.isInWater()) return;
+		Direction facing = Direction.getApproximateNearest(straightDir.x, 0, straightDir.z);
 		BlockPos feet = p.blockPosition();
 		BlockPos ahead = feet.relative(facing);
 
-		// 1. Trapped in a pit or deep below the target waypoint: pillar straight up or dig steps upward.
+		// 1. Trapped in a pit or deep below the target waypoint: dig steps upward first, or pillar straight up.
 		int surfaceY = level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, feet).getY();
 		if (wp.y - p.getY() >= 2.5 || surfaceY - feet.getY() >= 3) {
-			if (tryPillarUp(p, level, feet)) return;
 			if (tryDigStepUp(brain, level, feet, facing)) return;
+			if (tryPillarUp(p, level, feet)) return;
 		}
 
-		// 2. Blocked by leaves, cobwebs, dirt or stone right in front: break through (never inside player builds).
+		// 2. Blocked by leaves, cobwebs, dirt or stone right in front: break a clean 1×2 passage (never inside player builds).
 		for (BlockPos check : new BlockPos[]{ahead.above(), ahead, feet.above(2)}) {
 			BlockState s = level.getBlockState(check);
 			if (!s.isAir() && !Territory.isProtected(level, check)
@@ -109,18 +426,10 @@ public final class Travel {
 				return;
 			}
 		}
-
-		// 3. Water or a deep chasm right ahead: place a stepping block to bridge across.
-		BlockPos bridgePos = ahead.below();
-		BlockState belowAhead = level.getBlockState(bridgePos);
-		if ((belowAhead.isAir() || !belowAhead.getFluidState().isEmpty()) && level.getBlockState(ahead).isAir()
-				&& !Territory.isProtected(level, bridgePos)) {
-			placeScaffold(p, level, bridgePos);
-		}
 	}
 
 	private boolean tryPillarUp(PartnerEntity p, ServerLevel level, BlockPos feet) {
-		if (Territory.isProtected(level, feet)) return false;
+		if (Territory.isProtected(level, feet) || !level.getFluidState(feet).isEmpty()) return false;
 		BlockPos headAbove = feet.above(2);
 		if (!level.getBlockState(headAbove).isAir() && !Territory.isProtected(level, headAbove)
 				&& (level.getBlockState(headAbove).is(BlockTags.LEAVES) || WorldScan.diggable(level.getBlockState(headAbove)))) {
@@ -170,6 +479,6 @@ public final class Travel {
 				return bi.getBlock().defaultBlockState();
 			}
 		}
-		return Blocks.DIRT.defaultBlockState();
+		return Blocks.COBBLESTONE.defaultBlockState();
 	}
 }

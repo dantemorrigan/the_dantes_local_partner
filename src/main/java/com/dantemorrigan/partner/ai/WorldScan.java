@@ -16,7 +16,7 @@ import java.util.function.Predicate;
 /** Looks around for work: natural trees, ores a player could see, stone to dig. */
 public final class WorldScan {
 	/** Which ore kinds are wanted. */
-	public enum OreKind { ANY, COAL, IRON, GOLD, DIAMOND, NETHERITE, URU, STONE }
+	public enum OreKind { ANY, COAL, IRON, GOLD, DIAMOND, OBSIDIAN, NETHERITE, URU, STONE }
 
 	private WorldScan() {}
 
@@ -74,6 +74,7 @@ public final class WorldScan {
 			case IRON -> s.is(BlockTags.IRON_ORES);
 			case GOLD -> s.is(BlockTags.GOLD_ORES) || s.is(Blocks.NETHER_GOLD_ORE);
 			case DIAMOND -> s.is(BlockTags.DIAMOND_ORES);
+			case OBSIDIAN -> s.is(Blocks.OBSIDIAN);
 			case NETHERITE -> s.is(Blocks.ANCIENT_DEBRIS);
 			case URU -> InfinityCompat.isUruOre(s);
 			case STONE -> s.is(Blocks.STONE) || s.is(Blocks.COBBLESTONE) || s.is(Blocks.DEEPSLATE) || s.is(Blocks.COBBLED_DEEPSLATE) || s.is(Blocks.BLACKSTONE);

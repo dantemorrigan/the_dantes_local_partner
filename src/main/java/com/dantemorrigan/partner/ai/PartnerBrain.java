@@ -113,10 +113,15 @@ public final class PartnerBrain {
 			}
 			case BUILD -> job = new BuildJob();
 			case FARM -> job = new FarmJob();
+			case SPEEDRUN -> {
+				job = new BeatGameJob(false);
+				roamStart = p.tickCount;
+				restUntil = 0;
+			}
 			default -> {}
 		}
-		// Called back from far away (roaming): come at once.
-		if ((order == PartnerOrder.FOLLOW || order == PartnerOrder.GUARD) && p.distanceTo(by) > 48 && p.level() == by.level()) {
+		// Called back from far away or another dimension: come at once.
+		if ((order == PartnerOrder.FOLLOW || order == PartnerOrder.GUARD) && (p.level() != by.level() || p.distanceTo(by) > 48)) {
 			teleportHome(by, "came_on_call");
 		}
 		if ((order == PartnerOrder.PATROL || order == PartnerOrder.BUILD || order == PartnerOrder.FARM) && p.anchor() != null) PartnerFx.patrolMark(p, p.anchor());
@@ -163,7 +168,9 @@ public final class PartnerBrain {
 		if (Gear.isTool(s) || Gear.isArmor(s) || s.is(Items.CRAFTING_TABLE) || s.is(Items.FURNACE)
 				|| s.is(Items.TORCH) || s.is(Items.SHIELD) || s.is(Items.BOW) || s.is(Items.ARROW)
 				|| s.is(Items.BUCKET) || s.is(Items.WATER_BUCKET) || s.is(Items.FISHING_ROD)
-				|| s.is(Items.TOTEM_OF_UNDYING) || s.is(Items.LAPIS_LAZULI)) return true;
+				|| s.is(Items.TOTEM_OF_UNDYING) || s.is(Items.LAPIS_LAZULI)
+				|| s.is(Items.OBSIDIAN) || s.is(Items.FLINT_AND_STEEL) || s.is(Items.BLAZE_ROD)
+				|| s.is(Items.BLAZE_POWDER) || s.is(Items.ENDER_PEARL) || s.is(Items.ENDER_EYE)) return true;
 		if (s.is(ItemTags.BEDS)) {
 			for (int i = 0; i < slot; i++) if (p.backpack().getItem(i).is(ItemTags.BEDS)) return false;
 			return true;
@@ -212,7 +219,7 @@ public final class PartnerBrain {
 			p.stopRiding();
 		}
 		if (recovering() && recover(level, owner)) return; // even if the owner already respawned elsewhere
-		if (owner.level() != p.level()) {
+		if (owner.level() != p.level() && p.order() != PartnerOrder.SPEEDRUN && !(job instanceof BeatGameJob)) {
 			if (!InfinityCompat.partnerWaitsOutside(owner.level().dimension())) PartnerManager.travel(owner);
 			return;
 		}
@@ -222,6 +229,8 @@ public final class PartnerBrain {
 		if (parkour.tickAir(p)) return; // mid-jump: let it land
 		if (sleep(level, owner)) return;
 		if (p.tickCount % 40 == 0) checkEra();
+		if (p.tickCount % 20 == 0) recordExplorationStep();
+		if (p.tickCount % 60 == 0) scanAndMarkPois(level);
 		if (recover(level, owner)) return;
 		trackCalm(owner);
 		if (stayTogether(level, owner)) return;
@@ -250,8 +259,9 @@ public final class PartnerBrain {
 		} else calmTicks += 20;
 	}
 
-	/** Off on its own in free/expedition mode, far from the owner: fights only for itself, does not run back to help. */
+	/** Off on its own in free/expedition/speedrun mode, far from the owner or in another dimension: fights only for itself. */
 	public boolean roaming(ServerPlayer owner) {
+		if (owner.level() != p.level() || p.order() == PartnerOrder.SPEEDRUN) return true;
 		return (p.order() == PartnerOrder.FREE || p.order() == PartnerOrder.EXPEDITION) && horizontalDistSqr(p.position(), owner.position()) > 48 * 48;
 	}
 
@@ -387,6 +397,7 @@ public final class PartnerBrain {
 
 	private boolean stayTogether(ServerLevel level, ServerPlayer owner) {
 		PartnerOrder order = p.order();
+		if (order == PartnerOrder.SPEEDRUN || job instanceof BeatGameJob || owner.level() != p.level()) return false;
 		double horizontal = Math.sqrt(horizontalDistSqr(p.position(), owner.position()));
 		int maxRange = order == PartnerOrder.EXPEDITION ? ExpeditionJob.EXPEDITION_RADIUS
 				: order == PartnerOrder.FREE ? ROAM_RADIUS : FAR_TELEPORT;
@@ -722,6 +733,12 @@ public final class PartnerBrain {
 				p.setOrderQuiet(PartnerOrder.FOLLOW);
 			} else if (order == PartnerOrder.FARM) {
 				job = new FarmJob();
+			} else if (order == PartnerOrder.SPEEDRUN) {
+				if (status == Job.Status.DONE && !(finished instanceof GiveJob)) {
+					job = new GiveJob(true);
+					return;
+				}
+				p.setOrderQuiet(PartnerOrder.FOLLOW);
 			}
 			return;
 		}
@@ -730,6 +747,7 @@ public final class PartnerBrain {
 			case GUARD -> follow(owner, 1.5, 3.0, "guard");
 			case BUILD -> job = new BuildJob();
 			case FARM -> job = new FarmJob();
+			case SPEEDRUN -> job = new BeatGameJob(false);
 			case FREE, EXPEDITION -> {
 				if (restUntil > p.tickCount) {
 					follow(owner, 2.5, 5.0, "resting");
@@ -1176,27 +1194,280 @@ public final class PartnerBrain {
 	}
 
 	private final java.util.ArrayList<String> pois = new java.util.ArrayList<>();
+	private String lastDiscoveredBiome = "";
 	private int lastEmergencyTick = -9999;
 
-	/** Records a discovered landmark (dungeon, village/trader, biome) for the live tactical map and reports it. */
+	/** Visited 32×32 block region keys so exploration always seeks new territory and never walks in circles. */
+	public final java.util.LinkedHashSet<Long> visitedRegions = new java.util.LinkedHashSet<>();
+	private final java.util.ArrayDeque<Vec3> recentTrail = new java.util.ArrayDeque<>();
+	public double explorationHeading = Double.NaN;
+
+	private static long packRegion(int rx, int rz) {
+		return ((long) rx << 32) | (rz & 0xFFFFFFFFL);
+	}
+
+	private static long regionKey(int blockX, int blockZ) {
+		return packRegion(blockX >> 5, blockZ >> 5);
+	}
+
+	/** Records the partner's current region and breadcrumb trail so future waypoints avoid looping. */
+	private void recordExplorationStep() {
+		BlockPos pos = p.blockPosition();
+		long key = regionKey(pos.getX(), pos.getZ());
+		if (visitedRegions.size() >= 4096 && !visitedRegions.contains(key)) {
+			var it = visitedRegions.iterator();
+			if (it.hasNext()) {
+				it.next();
+				it.remove();
+			}
+		}
+		visitedRegions.add(key);
+
+		Vec3 now = p.position();
+		if (recentTrail.isEmpty() || horizontalDistSqr(now, recentTrail.peekLast()) >= 20 * 20) {
+			if (recentTrail.size() >= 28) recentTrail.pollFirst();
+			recentTrail.addLast(now);
+		}
+	}
+
+	/**
+	 * Picks the next logical exploration waypoint within {@code maxRadius} of {@code anchor}:
+	 * strongly favors unvisited 32×32 regions, avoids the recent breadcrumb trail, maintains smooth forward momentum
+	 * along the frontier, and prefers dry land targets over open ocean.
+	 */
+	public Vec3 pickNextExplorationWaypoint(ServerLevel level, Vec3 anchor, int minStep, int maxStep, int maxRadius) {
+		recordExplorationStep();
+		if (Double.isNaN(explorationHeading)) {
+			if (horizontalDistSqr(p.position(), anchor) > 16 * 16) {
+				explorationHeading = Math.atan2(p.getZ() - anchor.z, p.getX() - anchor.x);
+			} else {
+				explorationHeading = p.getRandom().nextDouble() * Math.PI * 2.0;
+			}
+		}
+
+		double[] angleOffsetsDeg = {0, 18, -18, 36, -36, 54, -54, 72, -72, 95, -95, 120, -120, 145, -145, 180};
+		Vec3 bestCandidate = null;
+		double bestScore = -1e9;
+		double bestAngle = explorationHeading;
+		double maxR2 = (double) maxRadius * maxRadius;
+		double curDistFromAnchor = Math.sqrt(horizontalDistSqr(p.position(), anchor));
+
+		for (double deg : angleOffsetsDeg) {
+			double candAngle = explorationHeading + Math.toRadians(deg) + (p.getRandom().nextDouble() - 0.5) * 0.12;
+			double step = minStep + p.getRandom().nextDouble() * Math.max(10, maxStep - minStep);
+			Vec3 cand = p.position().add(Math.cos(candAngle) * step, 0, Math.sin(candAngle) * step);
+			double distToAnchorSqr = horizontalDistSqr(cand, anchor);
+			if (distToAnchorSqr > maxR2) continue;
+
+			double score = 0.0;
+
+			// 1. Unvisited region score (target + surrounding 3x3 neighborhood + intermediate path)
+			int cx = (int) Math.floor(cand.x);
+			int cz = (int) Math.floor(cand.z);
+			long targetReg = regionKey(cx, cz);
+			if (!visitedRegions.contains(targetReg)) {
+				score += 110.0;
+			} else {
+				score -= 130.0;
+			}
+			for (int rx = -1; rx <= 1; rx++) {
+				for (int rz = -1; rz <= 1; rz++) {
+					if (rx == 0 && rz == 0) continue;
+					if (!visitedRegions.contains(packRegion((cx >> 5) + rx, (cz >> 5) + rz))) {
+						score += 12.0;
+					} else {
+						score -= 15.0;
+					}
+				}
+			}
+			for (double frac : new double[]{0.35, 0.7}) {
+				int mx = (int) Math.floor(p.getX() + (cand.x - p.getX()) * frac);
+				int mz = (int) Math.floor(p.getZ() + (cand.z - p.getZ()) * frac);
+				if (visitedRegions.contains(regionKey(mx, mz))) {
+					score -= 35.0;
+				}
+			}
+
+			// 2. Anti-loop check against recent breadcrumb trail
+			for (Vec3 prev : recentTrail) {
+				double d2 = horizontalDistSqr(cand, prev);
+				if (d2 < 48 * 48) {
+					score -= 160.0;
+				} else if (d2 < 80 * 80) {
+					score -= 55.0;
+				}
+			}
+
+			// 3. Forward momentum bonus so the route is coherent and doesn't zig-zag
+			score += 45.0 * Math.cos(Math.toRadians(deg));
+
+			// 4. Outward expansion bonus (until reaching 75% of maxRadius, then curve along the frontier)
+			double newDistFromAnchor = Math.sqrt(distToAnchorSqr);
+			if (curDistFromAnchor < maxRadius * 0.75 && newDistFromAnchor > curDistFromAnchor) {
+				score += 25.0;
+			}
+
+			// 5. Dry land preference when target chunk is loaded
+			BlockPos candBlock = BlockPos.containing(cand);
+			if (level.hasChunkAt(candBlock)) {
+				BlockPos top = level.getHeightmapPos(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, candBlock);
+				if (level.getFluidState(top).isEmpty() && level.getFluidState(top.below()).isEmpty()) {
+					score += 30.0;
+				} else {
+					score -= 45.0;
+				}
+			}
+
+			if (score > bestScore) {
+				bestScore = score;
+				bestCandidate = cand;
+				bestAngle = candAngle;
+			}
+		}
+
+		if (bestCandidate != null) {
+			explorationHeading = bestAngle;
+			return bestCandidate;
+		}
+		// Fallback if outside maxRadius: head back toward anchor at a fresh tangent angle
+		explorationHeading = Math.atan2(anchor.z - p.getZ(), anchor.x - p.getX()) + (p.getRandom().nextDouble() - 0.5) * 0.8;
+		double step = Math.min(maxStep, Math.sqrt(horizontalDistSqr(p.position(), anchor)));
+		return p.position().add(Math.cos(explorationHeading) * step, 0, Math.sin(explorationHeading) * step);
+	}
+
+	/**
+	 * Continuously scans the partner's surroundings for all interesting places:
+	 * biomes, villages/traders, dungeons/spawners, world structures/ruins/portals/temples/geodes/mineshafts,
+	 * hostile mob clusters, animal herds, and exposed rich ore veins or surface lava pools.
+	 */
+	public void scanAndMarkPois(ServerLevel level) {
+		BlockPos center = p.blockPosition();
+
+		// 1. Biome discovery
+		var biomeHolder = level.getBiome(center);
+		String biomeName = biomeHolder.unwrapKey().map(k -> k.identifier().getPath()).orElse("");
+		if (!biomeName.isEmpty() && !biomeName.equals(lastDiscoveredBiome)) {
+			lastDiscoveredBiome = biomeName;
+			recordPoi("biome", center, biomeName);
+		}
+
+		// 2. Villages & Traders
+		for (AbstractVillager v : level.getEntitiesOfClass(AbstractVillager.class, p.getBoundingBox().inflate(24, 8, 24), LivingEntity::isAlive)) {
+			recordPoi("village", v.blockPosition(), v.getName().getString());
+			break;
+		}
+
+		// 3. Hostile mob clusters (4+ hostiles or dangerous mini-bosses/patrols)
+		var hostiles = level.getEntitiesOfClass(Mob.class, p.getBoundingBox().inflate(22, 8, 22),
+				m -> m instanceof Enemy && m.isAlive());
+		if (hostiles.size() >= 4) {
+			Mob leader = hostiles.getFirst();
+			recordPoi("mob_cluster", leader.blockPosition(), hostiles.size() + "× " + leader.getType().getDescription().getString());
+		}
+
+		// 4. Passive animal herds (5+ farm/food animals)
+		var animals = level.getEntitiesOfClass(net.minecraft.world.entity.animal.Animal.class, p.getBoundingBox().inflate(20, 6, 20),
+				LivingEntity::isAlive);
+		if (animals.size() >= 5) {
+			var sample = animals.getFirst();
+			recordPoi("herd", sample.blockPosition(), animals.size() + "× " + sample.getType().getDescription().getString());
+		}
+
+		// 5. Block scan for Dungeons, Structures/Ruins/Portals/Temples/Geodes, Village Bells, and Rich Exposed Ores
+		BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
+		for (int dx = -16; dx <= 16; dx += 2) {
+			for (int dz = -16; dz <= 16; dz += 2) {
+				for (int dy = -8; dy <= 8; dy += 2) {
+					m.set(center.getX() + dx, center.getY() + dy, center.getZ() + dz);
+					if (!level.hasChunkAt(m) || com.dantemorrigan.partner.Territory.isProtected(level, m)) continue;
+					var s = level.getBlockState(m);
+					if (s.isAir()) continue;
+
+					if (s.is(net.minecraft.world.level.block.Blocks.SPAWNER)
+							|| s.is(net.minecraft.world.level.block.Blocks.TRIAL_SPAWNER)
+							|| s.is(net.minecraft.world.level.block.Blocks.VAULT)) {
+						recordPoi("dungeon", m.immutable(), s.getBlock().getName().getString());
+						return;
+					}
+					if (s.is(net.minecraft.world.level.block.Blocks.BELL)) {
+						recordPoi("village", m.immutable(), s.getBlock().getName().getString());
+						return;
+					}
+					if (s.is(net.minecraft.world.level.block.Blocks.CRYING_OBSIDIAN)
+							|| s.is(net.minecraft.world.level.block.Blocks.END_PORTAL_FRAME)
+							|| s.is(net.minecraft.world.level.block.Blocks.GILDED_BLACKSTONE)
+							|| s.is(net.minecraft.world.level.block.Blocks.CHISELED_SANDSTONE)
+							|| s.is(net.minecraft.world.level.block.Blocks.TRAPPED_CHEST)
+							|| s.is(net.minecraft.world.level.block.Blocks.NETHER_BRICK_FENCE)
+							|| s.is(net.minecraft.world.level.block.Blocks.SCULK_SHRIEKER)
+							|| s.is(net.minecraft.world.level.block.Blocks.REINFORCED_DEEPSLATE)
+							|| s.is(net.minecraft.world.level.block.Blocks.BUDDING_AMETHYST)
+							|| s.is(net.minecraft.world.level.block.Blocks.SEA_LANTERN)
+							|| s.is(net.minecraft.world.level.block.Blocks.CHEST)
+							|| s.is(net.minecraft.world.level.block.Blocks.BARREL)) {
+						recordPoi("structure", m.immutable(), s.getBlock().getName().getString());
+						return;
+					}
+					if (s.is(net.minecraft.world.level.block.Blocks.DIAMOND_ORE)
+							|| s.is(net.minecraft.world.level.block.Blocks.DEEPSLATE_DIAMOND_ORE)
+							|| s.is(net.minecraft.world.level.block.Blocks.EMERALD_ORE)
+							|| s.is(net.minecraft.world.level.block.Blocks.DEEPSLATE_EMERALD_ORE)
+							|| s.is(net.minecraft.world.level.block.Blocks.GOLD_ORE)
+							|| s.is(net.minecraft.world.level.block.Blocks.DEEPSLATE_GOLD_ORE)
+							|| s.is(net.minecraft.world.level.block.Blocks.ANCIENT_DEBRIS)) {
+						recordPoi("resource", m.immutable(), s.getBlock().getName().getString());
+						return;
+					}
+				}
+			}
+		}
+	}
+
+	/**
+	 * Records a discovered landmark (dungeon, village, structure, mob cluster, animal herd, resource vein, or biome)
+	 * for the live tactical radar map, spawns a visual marker beacon, and reports it in chat.
+	 */
 	public void recordPoi(String kind, BlockPos pos, String label) {
 		char code = switch (kind) {
 			case "dungeon" -> 'D';
 			case "village" -> 'V';
+			case "structure" -> 'S';
+			case "mob_cluster" -> 'M';
+			case "herd" -> 'A';
+			case "resource" -> 'O';
 			default -> 'B';
 		};
-		String entry = code + ":" + pos.getX() + "," + pos.getY() + "," + pos.getZ();
+		// Deduplicate nearby POIs of the same category (within 56 blocks) so we never spam the player
+		int minDistSqr = code == 'B' ? 96 * 96 : 56 * 56;
 		for (String existing : pois) {
-			if (existing.equals(entry)) return;
+			if (existing.length() < 3 || existing.charAt(0) != code || existing.charAt(1) != ':') continue;
+			String[] parts = existing.substring(2).split(",");
+			if (parts.length >= 3) {
+				try {
+					int ex = Integer.parseInt(parts[0]);
+					int ez = Integer.parseInt(parts[2]);
+					int dx = ex - pos.getX(), dz = ez - pos.getZ();
+					if (dx * dx + dz * dz < minDistSqr) return;
+				} catch (NumberFormatException ignored) {}
+			}
 		}
-		if (pois.size() >= 10) pois.removeFirst();
+		String entry = code + ":" + pos.getX() + "," + pos.getY() + "," + pos.getZ();
+		if (pois.size() >= 24) pois.removeFirst();
 		pois.add(entry);
-		if (kind.equals("dungeon")) {
-			report("poi_dungeon", pos.getX(), pos.getY(), pos.getZ());
-		} else if (kind.equals("village")) {
-			report("poi_village", pos.getX(), pos.getY(), pos.getZ());
-		} else if (kind.equals("biome")) {
-			report("poi_biome", label, pos.getX(), pos.getZ());
+
+		if (p.level() instanceof ServerLevel sl && code != 'B') {
+			sl.sendParticles(net.minecraft.core.particles.ParticleTypes.END_ROD,
+					pos.getX() + 0.5, pos.getY() + 1.2, pos.getZ() + 0.5, 12, 0.3, 0.8, 0.3, 0.02);
+		}
+
+		switch (kind) {
+			case "dungeon" -> report("poi_dungeon", pos.getX(), pos.getY(), pos.getZ());
+			case "village" -> report("poi_village", pos.getX(), pos.getY(), pos.getZ());
+			case "structure" -> report("poi_structure", label, pos.getX(), pos.getY(), pos.getZ());
+			case "mob_cluster" -> report("poi_mob_cluster", label, pos.getX(), pos.getY(), pos.getZ());
+			case "herd" -> report("poi_herd", label, pos.getX(), pos.getY(), pos.getZ());
+			case "resource" -> report("poi_resource", label, pos.getX(), pos.getY(), pos.getZ());
+			case "biome" -> report("poi_biome", label, pos.getX(), pos.getZ());
 		}
 	}
 
@@ -1222,6 +1493,24 @@ public final class PartnerBrain {
 		restUntil = p.tickCount + 20 * 120;
 		job = new ReturnJob();
 		say("returning_base");
+	}
+
+	/** Starts building and lighting a Nether Portal right away (/partner portal). */
+	public void buildPortalNow(ServerPlayer owner) {
+		if (!(p.level() instanceof ServerLevel level)) return;
+		stopJob(level);
+		job = new BeatGameJob(true);
+		p.speak("order_portal");
+	}
+
+	public void engageQuestTarget(LivingEntity le) {
+		this.target = le;
+		this.targetTicks = 0;
+		this.unreachableTicks = 0;
+	}
+
+	public void netherQuestCompleted() {
+		this.job = new BeatGameJob(false);
 	}
 
 	/**

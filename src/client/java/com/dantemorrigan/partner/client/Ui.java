@@ -112,9 +112,13 @@ public final class Ui {
 					int dotY = cy + (int) Math.round(pdz * radius);
 					int poiColor = switch (kind) {
 						case 'H' -> HELP;       // Home base (gold)
-						case 'D' -> ALERT;      // Dungeon (coral red)
-						case 'V' -> 0xFF55FF88; // Village / Trader (emerald)
-						default -> 0xFF77CCFF;  // Biome landmark
+						case 'D' -> ALERT;      // Dungeon / Spawner (coral red)
+						case 'V' -> 0xFF55FF88; // Village / Trader (emerald green)
+						case 'S' -> 0xFFE699FF; // Structure / Ruins / Temple / Portal (amethyst purple)
+						case 'M' -> 0xFFFF4444; // Hostile Mob Cluster / Danger (bright red)
+						case 'A' -> 0xFFFFBB55; // Animal Herd (warm amber)
+						case 'O' -> 0xFF55FFFF; // Rich Ore Vein / Lava Resource (diamond cyan)
+						default -> 0xFF77CCFF;  // Biome landmark (sky blue)
 					};
 					g.fill(dotX - 1, dotY - 1, dotX + 2, dotY + 2, poiColor);
 				} catch (NumberFormatException ignored) {}

@@ -19,17 +19,10 @@ public final class ExploreJob implements Job {
 		this.goal = goal;
 	}
 
-	/** A random new area, biased away from where the partner is now, inside {@code radius} around the owner. */
+	/** A logical new area in an unvisited sector inside {@code radius} around the owner, never walking in circles. */
 	public static ExploreJob newArea(PartnerBrain brain, ServerPlayer owner, int radius) {
 		PartnerEntity p = brain.p;
-		Vec3 goal = null;
-		for (int i = 0; i < 12 && goal == null; i++) {
-			double angle = p.getRandom().nextDouble() * Math.PI * 2;
-			double dist = 50 + p.getRandom().nextDouble() * 50;
-			Vec3 g = p.position().add(Math.cos(angle) * dist, 0, Math.sin(angle) * dist);
-			if (PartnerBrain.horizontalDistSqr(g, owner.position()) < (double) radius * radius) goal = g;
-		}
-		if (goal == null) goal = owner.position(); // at the edge of the radius: head back inward
+		Vec3 goal = brain.pickNextExplorationWaypoint((ServerLevel) p.level(), owner.position(), 55, 105, Math.max(60, radius - 20));
 		return new ExploreJob(goal);
 	}
 

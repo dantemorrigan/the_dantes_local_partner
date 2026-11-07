@@ -80,7 +80,7 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 			nav.setCanOpenDoors(true);
 			nav.setCanFloat(true);
 		}
-		this.setPathfindingMalus(PathType.WATER, 4.0f);
+		this.setPathfindingMalus(PathType.WATER, 0.8f);
 		this.setPathfindingMalus(PathType.FIRE_IN_NEIGHBOR, 16.0f);
 		this.setPathfindingMalus(PathType.FIRE, -1.0f);
 		this.setPathfindingMalus(PathType.LAVA, -1.0f);
@@ -90,6 +90,7 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 		return Mob.createMobAttributes()
 				.add(Attributes.MAX_HEALTH, 20.0)
 				.add(Attributes.MOVEMENT_SPEED, BASE_SPEED)
+				.add(Attributes.WATER_MOVEMENT_EFFICIENCY, 0.9)
 				.add(Attributes.ATTACK_DAMAGE, 1.0)
 				.add(Attributes.ATTACK_SPEED, 4.0)
 				.add(Attributes.FOLLOW_RANGE, 32.0)
@@ -230,6 +231,24 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 	public void aiStep() {
 		this.updateSwingTime();
 		super.aiStep();
+		if (!this.level().isClientSide() && this.isInWater()) {
+			boolean moving = this.zza > 0.005f || !this.getNavigation().isDone();
+			this.setSwimming(moving);
+			if (moving) {
+				this.setSprinting(true);
+				Vec3 v = this.getDeltaMovement();
+				double horiz = Math.hypot(v.x, v.z);
+				if (horiz > 0.005 && horiz < 0.28) {
+					double boost = 0.26 / horiz;
+					this.setDeltaMovement(v.x * boost, Math.max(v.y, 0.03), v.z * boost);
+				} else if (horiz <= 0.005) {
+					double rad = Math.toRadians(this.getYRot());
+					this.setDeltaMovement(-Math.sin(rad) * 0.22, Math.max(v.y, 0.03), Math.cos(rad) * 0.22);
+				}
+			}
+		} else if (!this.level().isClientSide() && this.isSwimming()) {
+			this.setSwimming(false);
+		}
 	}
 
 	/** A drop deeper than this is never walked off on purpose (falls of up to 3 blocks do no damage). */

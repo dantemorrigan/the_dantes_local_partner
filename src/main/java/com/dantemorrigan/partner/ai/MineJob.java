@@ -66,6 +66,7 @@ public final class MineJob implements Job {
 			case IRON -> s -> s.is(Items.RAW_IRON) || s.is(Items.IRON_INGOT);
 			case GOLD -> s -> s.is(Items.RAW_GOLD) || s.is(Items.GOLD_INGOT) || s.is(Items.GOLD_NUGGET);
 			case DIAMOND -> s -> s.is(Items.DIAMOND);
+			case OBSIDIAN -> s -> s.is(Items.OBSIDIAN);
 			case NETHERITE -> s -> s.is(Items.ANCIENT_DEBRIS) || s.is(Items.NETHERITE_SCRAP) || s.is(Items.NETHERITE_INGOT);
 			case URU -> com.dantemorrigan.partner.compat.InfinityCompat::isUruMaterial;
 			case STONE -> s -> s.is(ItemTags.STONE_TOOL_MATERIALS);
@@ -84,7 +85,7 @@ public final class MineJob implements Job {
 		return switch (kind) {
 			case IRON -> 2;
 			case GOLD, DIAMOND -> 3;
-			case NETHERITE, URU -> 4;
+			case OBSIDIAN, NETHERITE, URU -> 4;
 			default -> 1;
 		};
 	}
@@ -93,6 +94,7 @@ public final class MineJob implements Job {
 		boolean nether = level.dimension() == net.minecraft.world.level.Level.NETHER;
 		return switch (kind) {
 			case DIAMOND -> Math.max(level.getMinY() + 6, -54);
+			case OBSIDIAN -> 12;
 			case NETHERITE -> 15;
 			case URU -> Math.max(level.getMinY() + 6, -50);
 			case GOLD -> nether ? 32 : -16;
@@ -246,9 +248,20 @@ public final class MineJob implements Job {
 			return Status.RUNNING;
 		}
 		if (WorldScan.lavaNear(level, target)) {
-			brain.badBlocks.add(target);
-			ore = null;
-			return Status.RUNNING;
+			if (Gear.count(p.backpack(), s -> s.is(Items.WATER_BUCKET) || s.is(Items.BUCKET)) > 0) {
+				for (Direction d : Direction.values()) {
+					BlockPos lp = target.relative(d);
+					if (level.getFluidState(lp).is(net.minecraft.tags.FluidTags.LAVA)) {
+						level.setBlockAndUpdate(lp, level.getFluidState(lp).isSource() ? Blocks.OBSIDIAN.defaultBlockState() : Blocks.COBBLESTONE.defaultBlockState());
+						level.playSound(null, lp, net.minecraft.sounds.SoundEvents.LAVA_EXTINGUISH, net.minecraft.sounds.SoundSource.BLOCKS, 0.6f, 1.0f);
+					}
+				}
+			}
+			if (WorldScan.lavaNear(level, target)) {
+				brain.badBlocks.add(target);
+				ore = null;
+				return Status.RUNNING;
+			}
 		}
 		if (!brain.approach(target)) {
 			if (++stuck > 120) {

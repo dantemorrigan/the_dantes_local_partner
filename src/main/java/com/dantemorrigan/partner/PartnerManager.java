@@ -191,6 +191,11 @@ public final class PartnerManager {
 				partner.brain().makeCampfire(owner);
 				return;
 			}
+			case "portal" -> {
+				partner.brain().buildPortalNow(owner);
+				sendStatus(owner);
+				return;
+			}
 			case "ping" -> {
 				partner.brain().onPing(owner);
 				sendStatus(owner);
@@ -276,8 +281,11 @@ public final class PartnerManager {
 					}
 				} else {
 					MISSING.remove(owner.getUUID());
-					if (time % 20 == 0 && partner.level() instanceof ServerLevel sl && sl.getNearestPlayer(partner, 96) == null) {
-						sl.getChunkSource().addTicketWithRadius(LocalPartner.ROAM_TICKET, partner.chunkPosition(), 2);
+					if (partner.level() instanceof ServerLevel sl) {
+						if (sl.players().isEmpty()) sl.resetEmptyTime();
+						if (time % 20 == 0 && sl.getNearestPlayer(partner, 96) == null) {
+							sl.getChunkSource().addTicketWithRadius(LocalPartner.ROAM_TICKET, partner.chunkPosition(), 2);
+						}
 					}
 					if (partner.tickCount > 40 && partner.tickCount % SNAPSHOT_EVERY == 0) snapshot(owner, partner);
 				}
@@ -424,6 +432,7 @@ public final class PartnerManager {
 		}
 		PartnerEntity partner = find(owner);
 		if (partner == null || partner.level() == to || partner.isDeadOrDying()) return;
+		if (partner.order() == PartnerOrder.SPEEDRUN) return;
 		travel(owner);
 	}
 
@@ -465,6 +474,29 @@ public final class PartnerManager {
 				put(owner.getUUID(), r);
 			}
 			LIVE.put(owner.getUUID(), p);
+			return p;
+		}
+		return null;
+	}
+
+	/** Moves the partner into another dimension on its own (Nether / The End speedrun) and keeps that dimension active. */
+	public static @Nullable PartnerEntity teleportToDimension(PartnerEntity partner, ServerLevel targetLevel, Vec3 spot, float yRot) {
+		UUID ownerId = partner.getOwnerUUID();
+		targetLevel.resetEmptyTime();
+		targetLevel.getChunkSource().addTicketWithRadius(LocalPartner.ROAM_TICKET, new net.minecraft.world.level.ChunkPos(((int) Math.floor(spot.x)) >> 4, ((int) Math.floor(spot.z)) >> 4), 2);
+		Entity moved = partner.teleport(new TeleportTransition(targetLevel, spot, Vec3.ZERO, yRot, 0f, TeleportTransition.DO_NOTHING));
+		if (moved instanceof PartnerEntity p) {
+			if (ownerId != null) {
+				CompoundTag rec = records.get(ownerId.toString());
+				if (rec != null) {
+					CompoundTag r = rec.copy();
+					r.putString("entity", p.getUUID().toString());
+					r.putString("dim", targetLevel.dimension().identifier().toString());
+					r.putIntArray("pos", new int[]{p.getBlockX(), p.getBlockY(), p.getBlockZ()});
+					put(ownerId, r);
+				}
+				LIVE.put(ownerId, p);
+			}
 			return p;
 		}
 		return null;

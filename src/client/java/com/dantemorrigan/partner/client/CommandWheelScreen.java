@@ -20,11 +20,11 @@ import org.lwjgl.glfw.GLFW;
  * LMB/Enter confirms, Esc or C closes without a choice. Does not pause the game.
  */
 public final class CommandWheelScreen extends Screen {
-	private static final String[] IDS = {"follow", "wood", "ore", "guard", "patrol", "free", "expedition", "build", "farm"};
-	private static final String[] ICON_NAMES = {"follow", "wood", "ore", "guard", "patrol", "free", "free", "wood", "assist"};
+	private static final String[] IDS = {"follow", "wood", "ore", "guard", "patrol", "free", "expedition", "build", "farm", "speedrun"};
+	private static final String[] ICON_NAMES = {"follow", "wood", "ore", "guard", "patrol", "free", "free", "wood", "assist", "guard"};
 	private static final int[] ANGLES = {-90, -30, 30, 90, 150, 210};
 	private static final int[][] ICON = {{112, 34}, {180, 73}, {180, 151}, {112, 190}, {44, 151}, {44, 73}};
-	private static final int[] ACCENT = {0xFF92F0BD, 0xFFF2BB84, 0xFFA2DFED, 0xFFF4A594, 0xFFC2C8FF, 0xFFE0EABA, 0xFF77E6D8, 0xFFFFC978, 0xFFA6F08A};
+	private static final int[] ACCENT = {0xFF92F0BD, 0xFFF2BB84, 0xFFA2DFED, 0xFFF4A594, 0xFFC2C8FF, 0xFFE0EABA, 0xFF77E6D8, 0xFFFFC978, 0xFFA6F08A, 0xFFE699FF};
 	private static final int SIZE = 224, INNER = 49, OUTER = 107;
 
 	private int focus = -1;
@@ -92,10 +92,10 @@ public final class CommandWheelScreen extends Screen {
 
 	private int extraButtonAt(double mx, double my) {
 		int barY = 10;
-		int btnW = 78, btnH = 20, gap = 5;
-		int totalW = 3 * btnW + 2 * gap;
+		int btnW = 68, btnH = 20, gap = 4;
+		int totalW = 4 * btnW + 3 * gap;
 		int startX = width - 10 - totalW;
-		for (int i = 0; i < 3; i++) {
+		for (int i = 0; i < 4; i++) {
 			int bx = startX + i * (btnW + gap);
 			if (Ui.inside(mx, my, bx, barY, btnW, btnH)) return 6 + i;
 		}
@@ -186,12 +186,12 @@ public final class CommandWheelScreen extends Screen {
 			g.textWithWordWrap(font, description(), cardX + 7, cardY + 25, cardW - 14, Ui.MUTED, false);
 		}
 
-		// Special Mode Bar (Expedition [1], Build [2], Farm [3]) at top-right, aligned with the title bar.
+		// Special Mode Bar (Expedition [1], Build [2], Farm [3], Speedrun/Dragon [4]) at top-right, aligned with the title bar.
 		int barY = 10;
-		int btnW = 78, btnH = 20, gap = 5;
-		int totalW = 3 * btnW + 2 * gap;
+		int btnW = 68, btnH = 20, gap = 4;
+		int totalW = 4 * btnW + 3 * gap;
 		int startX = width - 10 - totalW;
-		for (int i = 0; i < 3; i++) {
+		for (int i = 0; i < 4; i++) {
 			int idx = 6 + i;
 			int bx = startX + i * (btnW + gap);
 			boolean hovered = focus == idx;
@@ -258,6 +258,11 @@ public final class CommandWheelScreen extends Screen {
 		}
 		if (key == GLFW.GLFW_KEY_3 || key == GLFW.GLFW_KEY_KP_3) {
 			focus = 8;
+			confirm();
+			return true;
+		}
+		if (key == GLFW.GLFW_KEY_4 || key == GLFW.GLFW_KEY_KP_4) {
+			focus = 9;
 			confirm();
 			return true;
 		}

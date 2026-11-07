@@ -23,6 +23,8 @@ public enum PartnerOrder {
 	BUILD("build", true),
 	/** Farm: till soil, plant and harvest crops, lure/breed/shear livestock, tame wolves and cats. */
 	FARM("farm", true),
+	/** Speedrun: autonomously build Nether/End portals, gather Blaze Rods & Eyes of Ender, enter The End, and slay the Ender Dragon. */
+	SPEEDRUN("speedrun", true),
 	/** Internal: come and hand over the haul, then follow again. */
 	GIVE("give", false);
 

@@ -138,9 +138,11 @@ public final class ExpeditionJob implements Job {
 					legsCompleted++;
 					return Status.RUNNING;
 				}
-				waypoint = pickNextWaypoint(p, owner);
-				double dist = Math.sqrt(PartnerBrain.horizontalDistSqr(p.position(), waypoint));
-				brain.report("expedition_step", (int) waypoint.x, (int) waypoint.z, (int) dist);
+				if (waypoint == null || PartnerBrain.horizontalDistSqr(p.position(), waypoint) < 10 * 10) {
+					waypoint = brain.pickNextExplorationWaypoint(level, owner.position(), 95, 165, EXPEDITION_RADIUS - 60);
+					double dist = Math.sqrt(PartnerBrain.horizontalDistSqr(p.position(), waypoint));
+					brain.report("expedition_step", (int) waypoint.x, (int) waypoint.z, (int) dist);
+				}
 				stage = Stage.MARCH;
 			}
 			case MARCH -> {
@@ -151,12 +153,14 @@ public final class ExpeditionJob implements Job {
 				double dist = Math.sqrt(PartnerBrain.horizontalDistSqr(p.position(), waypoint));
 				int distToOwner = (int) Math.sqrt(PartnerBrain.horizontalDistSqr(p.position(), owner.position()));
 				brain.detail = (int) dist + "m · ⚑ " + distToOwner + "m";
-				if (dist < 8 || stageTicks > 20 * 90) {
+				if (dist < 10 || stageTicks > 20 * 90) {
+					waypoint = null;
 					legsCompleted++;
 					stage = Stage.PLAN;
 					return Status.RUNNING;
 				}
 				if (!travel.tick(brain, level, waypoint, PartnerEntity.SPRINT)) {
+					waypoint = null;
 					legsCompleted++;
 					stage = Stage.PLAN;
 				}
@@ -165,7 +169,8 @@ public final class ExpeditionJob implements Job {
 				if (stageTicks > 20 * 45) {
 					spawnerPos = null;
 					chestPos = null;
-					stage = Stage.PLAN;
+					stage = waypoint != null ? Stage.MARCH : Stage.PLAN;
+					stageTicks = 0;
 					return Status.RUNNING;
 				}
 				if (spawnerPos != null) {
@@ -189,7 +194,8 @@ public final class ExpeditionJob implements Job {
 					Container c = StoreJob.getContainer(level, chestPos);
 					if (c == null) {
 						chestPos = null;
-						stage = Stage.PLAN;
+						stage = waypoint != null ? Stage.MARCH : Stage.PLAN;
+						stageTicks = 0;
 						return Status.RUNNING;
 					}
 					if (!BlockBreaker.inReach(p, chestPos)) {
@@ -200,12 +206,14 @@ public final class ExpeditionJob implements Job {
 					brain.badBlocks.add(chestPos);
 					chestPos = null;
 				}
-				stage = Stage.PLAN;
+				stage = waypoint != null ? Stage.MARCH : Stage.PLAN;
+				stageTicks = 0;
 			}
 			case TRADE -> {
 				if (merchant == null || !merchant.isAlive() || stageTicks > 20 * 30) {
 					merchant = null;
-					stage = Stage.PLAN;
+					stage = waypoint != null ? Stage.MARCH : Stage.PLAN;
+					stageTicks = 0;
 					return Status.RUNNING;
 				}
 				if (p.distanceTo(merchant) > 3.0) {
@@ -219,7 +227,8 @@ public final class ExpeditionJob implements Job {
 					performTrades(brain, level, merchant);
 					brain.ignoredEntity(merchant.getId(), 20 * 180);
 					merchant = null;
-					stage = Stage.PLAN;
+					stage = waypoint != null ? Stage.MARCH : Stage.PLAN;
+					stageTicks = 0;
 				}
 			}
 			case SUBJOB -> {
