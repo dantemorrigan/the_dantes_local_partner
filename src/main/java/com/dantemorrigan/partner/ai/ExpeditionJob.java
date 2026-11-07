@@ -57,7 +57,6 @@ public final class ExpeditionJob implements Job {
 		return switch (stage) {
 			case DUNGEON -> "dungeon";
 			case TRADE -> "trade";
-			case SUBJOB -> subJob != null ? subJob.activity() : "expedition";
 			default -> "expedition";
 		};
 	}
@@ -97,7 +96,7 @@ public final class ExpeditionJob implements Job {
 			checkBiomeAndLandmarks(brain, level);
 		}
 
-		// Survival & gear check along the journey: if starving or missing basic gear, run a quick survival step.
+		// Holistic survival & gear check along the journey: only act when genuinely needed and opportunities are right here!
 		if (stage == Stage.MARCH && p.tickCount % 40 == 0) {
 			AutoJob.craftUpgrades(brain);
 			var crafts = AutoJob.plannedCrafts(brain);
@@ -105,8 +104,15 @@ public final class ExpeditionJob implements Job {
 				startSubJob(new CraftJob(crafts, true));
 				return Status.RUNNING;
 			}
-			if (Gear.foodPoints(p.backpack()) < 10) {
-				startSubJob(new HuntJob(24));
+			// Only hunt if genuinely low on food AND there is a prey animal right nearby on our path.
+			if (Gear.foodPoints(p.backpack()) < 8 && p.foodLevel() <= 15 && HuntJob.hasPreyNearby(level, p)) {
+				startSubJob(new HuntJob(16));
+				return Status.RUNNING;
+			}
+			// Only chop wood if we have no pickaxe AND no wood in the backpack at all.
+			int wood = brain.logs() * 4 + Gear.count(p.backpack(), s -> s.is(ItemTags.PLANKS));
+			if (brain.pickTier() == 0 && wood < 12 && WorldScan.findTree(level, p.blockPosition(), 14, brain.badBlocks) != null) {
+				startSubJob(new ChopJob(4));
 				return Status.RUNNING;
 			}
 			// Look for nearby villagers/traders or dungeons while marching.
@@ -125,9 +131,10 @@ public final class ExpeditionJob implements Job {
 					return Status.RUNNING;
 				}
 				if (scanForDungeon(brain, level) || scanForMerchant(brain, level)) return Status.RUNNING;
-				// Every few legs of the expedition, gather wood/ore if needed to grow stronger.
-				if (legsCompleted % 2 == 1 && !AutoJob.nothingToDo(brain)) {
-					startSubJob(new AutoJob());
+				// If we have a pickaxe and spot exposed surface ore right next to us, mine a few blocks on the way.
+				if (brain.pickTier() >= 1 && legsCompleted % 2 == 1
+						&& WorldScan.findExposed(level, p.blockPosition(), 14, 8, s -> WorldScan.isOre(s, WorldScan.OreKind.ANY), brain.badBlocks) != null) {
+					startSubJob(new MineJob(WorldScan.OreKind.ANY, 4));
 					legsCompleted++;
 					return Status.RUNNING;
 				}
@@ -220,11 +227,19 @@ public final class ExpeditionJob implements Job {
 					stage = Stage.PLAN;
 					return Status.RUNNING;
 				}
-				Status s = subJob.tick(brain, level);
-				if (s != Status.RUNNING || stageTicks > 20 * 120) {
+				// Stop subJob early if the player just gifted food/wood that satisfied the need!
+				if (subJob instanceof HuntJob && Gear.foodPoints(p.backpack()) >= 16
+						|| subJob instanceof ChopJob && (brain.logs() * 4 + Gear.count(p.backpack(), s -> s.is(ItemTags.PLANKS))) >= 16) {
 					subJob.stop(brain, level);
 					subJob = null;
-					stage = Stage.PLAN;
+					stage = Stage.MARCH;
+					return Status.RUNNING;
+				}
+				Status s = subJob.tick(brain, level);
+				if (s != Status.RUNNING || stageTicks > 20 * 45) {
+					subJob.stop(brain, level);
+					subJob = null;
+					stage = waypoint != null ? Stage.MARCH : Stage.PLAN;
 				}
 			}
 		}

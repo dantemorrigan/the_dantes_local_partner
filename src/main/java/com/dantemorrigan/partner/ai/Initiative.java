@@ -52,14 +52,14 @@ public final class Initiative {
 		PartnerEntity p = brain.p;
 		var bag = p.backpack();
 
-		// Critical, solved without asking: the partner itself is starving with nothing to eat.
-		if (p.foodLevel() <= 6 && Gear.foodPoints(bag) == 0 && !busy && ready("starving", 20 * 60 * 3)) {
+		// Critical, solved without asking: the partner itself is starving with nothing to eat (only if animals are around).
+		if (p.foodLevel() <= 6 && Gear.foodPoints(bag) == 0 && !busy && HuntJob.hasPreyNearby(level, p) && ready("starving", 20 * 60 * 3)) {
 			p.speak("starving");
 			return new HuntJob(20);
 		}
 		// The owner is hungry, has no food, and neither has the partner: go get some.
 		if (!owner.isCreative() && owner.getFoodData().getFoodLevel() <= 10 && ownerFood(owner) == 0 && Gear.foodPoints(bag) == 0
-				&& !busy && ready("owner_food", 20 * 60 * 3)) {
+				&& !busy && HuntJob.hasPreyNearby(level, p) && ready("owner_food", 20 * 60 * 3)) {
 			p.speak("fix_food");
 			return new HuntJob(30);
 		}

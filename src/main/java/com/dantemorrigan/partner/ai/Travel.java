@@ -38,36 +38,52 @@ public final class Travel {
 		if (veerAngle != 0) dir = dir.yRot(veerAngle);
 		Vec3 wp = dist < 14 ? goal : p.position().add(dir.scale(12));
 		if (dist >= 14) {
-			BlockPos top = level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, BlockPos.containing(wp));
+			BlockPos top = findOpenSurface(level, BlockPos.containing(wp));
 			wp = Vec3.atBottomCenterOf(top);
 		}
-		if (p.tickCount % 20 == 0 || p.getNavigation().isDone()) p.getNavigation().moveTo(wp.x, wp.y, wp.z, speed);
+		if (p.tickCount % 15 == 0 || p.getNavigation().isDone()) p.getNavigation().moveTo(wp.x, wp.y, wp.z, speed);
 		brain.jumpIfBlocked(wp);
 
 		// Active self-rescue while stuck: clear leaves/blocks ahead, bridge across water/drops, or pillar out of a pit.
-		if (stuck >= 2 && p.tickCount % 10 == 0) {
+		if (stuck >= 1 && p.tickCount % 8 == 0) {
 			selfRescue(brain, level, dir, wp);
 		}
 
-		if (p.tickCount % 40 == 0) {
-			if (p.position().distanceToSqr(lastPos) < 2) {
+		if (p.tickCount % 20 == 0) {
+			if (p.position().distanceToSqr(lastPos) < 1.2) {
 				// Blocked: try going around (alternate sides, wider each time) and trigger self-rescue.
 				stuck++;
-				veerAngle = (float) Math.toRadians((stuck % 2 == 0 ? 1 : -1) * Math.min(90, 35 * ((stuck + 1) / 2)));
-				veer = 6;
+				veerAngle = (float) Math.toRadians((stuck % 2 == 0 ? 1 : -1) * Math.min(95, 35 * ((stuck + 1) / 2)));
+				veer = 5;
 				if (stuck == 4) brain.report("self_unstuck");
 			} else if (veer > 0 && --veer == 0) {
 				veerAngle = 0;
 			}
-			if (p.position().distanceToSqr(lastPos) >= 2) stuck = Math.max(0, stuck - 1);
+			if (p.position().distanceToSqr(lastPos) >= 1.2) stuck = Math.max(0, stuck - 1);
 			lastPos = p.position();
 		}
-		if (stuck >= 9) {
+		if (stuck >= 8) {
 			stuck = 0;
 			brain.emergencyUnstuck(level);
 			return false;
 		}
 		return true;
+	}
+
+	private static BlockPos findOpenSurface(ServerLevel level, BlockPos approx) {
+		BlockPos best = level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, approx);
+		for (int r = 0; r <= 3; r++) {
+			for (int dx = -r; dx <= r; dx++) {
+				for (int dz = -r; dz <= r; dz++) {
+					BlockPos cand = level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, approx.offset(dx, 0, dz));
+					if (level.getFluidState(cand).isEmpty() && level.getFluidState(cand.below()).isEmpty()
+							&& !level.getBlockState(cand).is(BlockTags.LOGS) && !level.getBlockState(cand.above()).is(BlockTags.LEAVES)) {
+						return cand;
+					}
+				}
+			}
+		}
+		return best;
 	}
 
 	/** Uses player-like maneuvers to get out of a trap: break blocking leaves/stone, bridge a gap, or pillar out of a hole. */

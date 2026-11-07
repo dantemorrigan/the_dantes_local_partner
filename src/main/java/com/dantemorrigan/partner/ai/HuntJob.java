@@ -55,18 +55,17 @@ public final class HuntJob implements Job {
 		}
 		if (prey == null || !prey.isAlive()) {
 			if (prey != null) {
+				p.sweepDropsNow(level);
 				collect = 40;
 				prey = null;
 				return Status.RUNNING;
 			}
-			if (ticks % 40 != 1) return Status.RUNNING;
 			prey = findPrey(level, p);
-			if (prey != null) brain.report("hunt_target", prey.getType().getDescription());
-			if (prey == null && ++searches > 4) {
-				brain.report("hunt_none");
-				return Status.FAILED;
+			if (prey != null) {
+				brain.report("hunt_target", prey.getType().getDescription());
+				return Status.RUNNING;
 			}
-			return Status.RUNNING;
+			return Status.FAILED;
 		}
 		Gear.holdWeapon(p);
 		p.getLookControl().setLookAt(prey, 30f, 30f);
@@ -88,6 +87,10 @@ public final class HuntJob implements Job {
 			if (s.is(net.minecraft.world.item.Items.CHICKEN)) n += 2 * s.getCount();
 		}
 		return n;
+	}
+
+	public static boolean hasPreyNearby(ServerLevel level, PartnerEntity p) {
+		return findPrey(level, p) != null;
 	}
 
 	private static @Nullable Animal findPrey(ServerLevel level, PartnerEntity p) {

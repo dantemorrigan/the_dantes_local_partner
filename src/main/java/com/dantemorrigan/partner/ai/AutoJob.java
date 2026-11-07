@@ -71,6 +71,18 @@ public final class AutoJob implements Job {
 			if (owner != null) brain.follow(owner, 2.5, 5.0, "free");
 			return --idle > 0 ? Status.RUNNING : Status.DONE;
 		}
+		if (step != null && brain.p.tickCount % 20 == 0) {
+			// Re-evaluate if the player just gifted wood/food/materials that satisfy or supersede the current step!
+			var bag = brain.p.backpack();
+			int woodNow = brain.logs() * 4 + Gear.count(bag, s -> s.is(ItemTags.PLANKS));
+			if (("wood".equals(stepKey) && woodNow >= 16)
+					|| (("hunt".equals(stepKey) || "stock_food".equals(stepKey)) && Gear.foodPoints(bag) >= 16)
+					|| (!"craft".equals(stepKey) && !plannedCrafts(brain).isEmpty())) {
+				step.stop(brain, level);
+				step = null;
+				return Status.RUNNING;
+			}
+		}
 		Status s = step.tick(brain, level);
 		if (s == Status.RUNNING) return s;
 		step.stop(brain, level);
@@ -90,8 +102,9 @@ public final class AutoJob implements Job {
 		boolean furnace = Gear.count(c, Items.FURNACE) > 0;
 		boolean fuel = Gear.count(c, s -> s.is(ItemTags.COALS)) >= 2 || Gear.count(c, s -> s.is(ItemTags.PLANKS)) > 12;
 
-		if (Gear.foodPoints(c) < 12 && start(brain, "hunt", new HuntJob(30))) return true;
-		if (wood < 16 && start(brain, "wood", new ChopJob(tier == 0 ? 6 : 8))) return true;
+		boolean hasPrey = !(p.level() instanceof ServerLevel sl0) || HuntJob.hasPreyNearby(sl0, p);
+		if (Gear.foodPoints(c) < 8 && hasPrey && start(brain, "hunt", new HuntJob(20))) return true;
+		if (wood < 12 && tier < 3 && start(brain, "wood", new ChopJob(tier == 0 ? 4 : 6))) return true;
 		if ((tier < 2 || !furnace) && cobble < 11 && start(brain, "stone", new MineJob(WorldScan.OreKind.STONE, 11 - cobble))) return true;
 		if (tier >= 2 && !fuel && furnace && start(brain, "coal", new MineJob(WorldScan.OreKind.COAL, 8))) return true;
 		if (p.level() instanceof ServerLevel sl && (furnace || SmeltJob.findFurnace(p, 12) != null) && fuel
@@ -116,7 +129,7 @@ public final class AutoJob implements Job {
 				&& Gear.count(c, com.dantemorrigan.partner.compat.InfinityCompat::isUruMaterial) < 8
 				&& start(brain, "uru", new MineJob(WorldScan.OreKind.URU, 4))) return dryRun || block(brain, "uru", 6);
 		// Beyond the gear: keep stocks up and keep prospecting (each at most every few minutes).
-		if (tier >= 2 && Gear.foodPoints(c) < 40 && start(brain, "stock_food", new HuntJob(48))) return dryRun || block(brain, "stock_food", 5);
+		if (tier >= 2 && Gear.foodPoints(c) < 16 && hasPrey && start(brain, "stock_food", new HuntJob(28))) return dryRun || block(brain, "stock_food", 5);
 		if (tier >= 2 && Gear.count(c, Items.TORCH) < 16 && Gear.count(c, s -> s.is(ItemTags.COALS)) < 4
 				&& start(brain, "stock_coal", new MineJob(WorldScan.OreKind.COAL, 8))) return dryRun || block(brain, "stock_coal", 5);
 		if (tier >= 2 && start(brain, "prospect", new MineJob(WorldScan.OreKind.ANY, 10))) return dryRun || block(brain, "prospect", 10);

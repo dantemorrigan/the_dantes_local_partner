@@ -142,7 +142,8 @@ public final class BuildJob implements Job {
 			p.snapTo(p.getX(), pos.getY() + 1.0, p.getZ(), p.getYRot(), p.getXRot());
 		}
 
-		consumeMaterial(p, step.state);
+		BlockState actualState = resolveAvailableBlock(p, step.state);
+		consumeMaterial(p, actualState);
 		if (step.isDoorLower) {
 			BlockState lower = Blocks.OAK_DOOR.defaultBlockState()
 					.setValue(DoorBlock.FACING, step.doorFacing)
@@ -153,7 +154,7 @@ public final class BuildJob implements Job {
 			Territory.mark(level, pos);
 			Territory.mark(level, pos.above());
 		} else {
-			level.setBlockAndUpdate(pos, step.state);
+			level.setBlockAndUpdate(pos, actualState);
 			Territory.mark(level, pos);
 		}
 		placed++;
@@ -213,8 +214,6 @@ public final class BuildJob implements Job {
 		int baseY = minY;
 		int wallTopY = Math.max(baseY + 3, Math.min(baseY + 4, maxY));
 
-		brain.say("build_analyzed", width, depth, wallMat.getBlock().getName());
-
 		// 1. Floor inside the footprint.
 		for (int x = minX; x <= maxX; x++) {
 			for (int z = minZ; z <= maxZ; z++) {
@@ -272,7 +271,11 @@ public final class BuildJob implements Job {
 		// 4. Interior lighting.
 		BlockPos mid = new BlockPos((minX + maxX) / 2, baseY + 1, (minZ + maxZ) / 2);
 		if (level.getBlockState(mid).isAir()) plan.add(new Step(mid, Blocks.TORCH.defaultBlockState()));
-		return !plan.isEmpty();
+		if (!plan.isEmpty()) {
+			brain.say("build_analyzed", width, depth, wallTopY - baseY, plan.size());
+			return true;
+		}
+		return false;
 	}
 
 	/** Builds a cozy 7×7 cabin from scratch near {@code center}. */
@@ -281,8 +284,6 @@ public final class BuildJob implements Job {
 		int minX = origin.getX() - 3, maxX = origin.getX() + 3;
 		int minZ = origin.getZ() - 3, maxZ = origin.getZ() + 3;
 		int baseY = origin.getY() - 1;
-
-		brain.say("build_new_home", 7, 7);
 
 		BlockState cobble = Blocks.COBBLESTONE.defaultBlockState();
 		BlockState planks = Blocks.OAK_PLANKS.defaultBlockState();
@@ -325,6 +326,7 @@ public final class BuildJob implements Job {
 		plan.add(new Step(new BlockPos(origin.getX(), baseY + 1, origin.getZ()), Blocks.TORCH.defaultBlockState()));
 		plan.add(new Step(new BlockPos(minX + 1, baseY + 1, maxZ - 1), Blocks.CRAFTING_TABLE.defaultBlockState()));
 		plan.add(new Step(new BlockPos(maxX - 1, baseY + 1, maxZ - 1), Blocks.CHEST.defaultBlockState()));
+		brain.say("build_new", plan.size());
 	}
 
 	private static boolean isStructuralBlock(BlockState s) {
@@ -349,42 +351,90 @@ public final class BuildJob implements Job {
 	private boolean ensureMaterialFor(PartnerBrain brain, BlockState wanted) {
 		PartnerEntity p = brain.p;
 		var bag = p.backpack();
-		if (wanted.is(BlockTags.PLANKS) || wanted.is(BlockTags.DOORS) || wanted.is(Blocks.CRAFTING_TABLE) || wanted.is(Blocks.CHEST)) {
-			if (Gear.count(bag, s -> s.is(ItemTags.PLANKS)) < 4) {
-				if (Gear.count(bag, s -> s.is(ItemTags.LOGS)) > 0) {
-					Crafting.makePlanks(p);
-					return true;
-				}
-				prerequisite = new ChopJob(8);
-				return false;
+		int planks = Gear.count(bag, s -> s.is(ItemTags.PLANKS));
+		int logs = Gear.count(bag, s -> s.is(ItemTags.LOGS));
+		int stone = Gear.count(bag, s -> s.is(ItemTags.STONE_TOOL_MATERIALS));
+
+		if (wanted.is(BlockTags.DOORS)) {
+			if (Gear.count(bag, s -> s.is(ItemTags.DOORS)) > 0) return true;
+			while (planks < 6 && logs > 0) {
+				Crafting.makePlanks(p);
+				planks = Gear.count(bag, s -> s.is(ItemTags.PLANKS));
+				logs = Gear.count(bag, s -> s.is(ItemTags.LOGS));
 			}
-			return true;
+			if (planks >= 6) return true;
+			prerequisite = new ChopJob(4);
+			return false;
+		}
+		if (wanted.is(BlockTags.PLANKS) || wanted.is(Blocks.CRAFTING_TABLE) || wanted.is(Blocks.CHEST)) {
+			if (planks < 4 && logs > 0) {
+				Crafting.makePlanks(p);
+				return true;
+			}
+			if (planks > 0 || stone > 0) return true;
+			prerequisite = new ChopJob(6);
+			return false;
 		}
 		if (wanted.is(BlockTags.LOGS)) {
-			if (Gear.count(bag, s -> s.is(ItemTags.LOGS)) == 0) {
-				prerequisite = new ChopJob(8);
-				return false;
-			}
-			return true;
+			// Use logs if we have them, or substitute planks/stone if the player gave us those instead.
+			if (logs > 0 || planks > 0 || stone > 0) return true;
+			prerequisite = new ChopJob(6);
+			return false;
 		}
 		if (wanted.is(Blocks.COBBLESTONE) || wanted.is(BlockTags.STONE_BRICKS)) {
-			if (Gear.count(bag, s -> s.is(ItemTags.STONE_TOOL_MATERIALS)) == 0 && Gear.count(bag, s -> s.getItem() instanceof BlockItem) < 4) {
-				prerequisite = new MineJob(WorldScan.OreKind.STONE, 12);
-				return false;
+			// Use stone if we have it, or substitute planks/logs if the player gave us wood instead!
+			if (stone > 0 || planks > 0) return true;
+			if (logs > 0) {
+				Crafting.makePlanks(p);
+				return true;
 			}
+			prerequisite = new ChopJob(6);
+			return false;
 		}
 		return true;
+	}
+
+	private static BlockState resolveAvailableBlock(PartnerEntity p, BlockState preferred) {
+		var bag = p.backpack();
+		if (preferred.is(BlockTags.LOGS) && Gear.count(bag, s -> s.is(ItemTags.LOGS)) == 0) {
+			if (Gear.count(bag, s -> s.is(ItemTags.PLANKS)) > 0) return firstBlockInBag(bag, s -> s.is(ItemTags.PLANKS), Blocks.OAK_PLANKS.defaultBlockState());
+			if (Gear.count(bag, s -> s.is(ItemTags.STONE_TOOL_MATERIALS)) > 0) return Blocks.COBBLESTONE.defaultBlockState();
+		}
+		if (preferred.is(Blocks.COBBLESTONE) && Gear.count(bag, s -> s.is(ItemTags.STONE_TOOL_MATERIALS)) == 0) {
+			if (Gear.count(bag, s -> s.is(ItemTags.PLANKS)) == 0 && Gear.count(bag, s -> s.is(ItemTags.LOGS)) > 0) Crafting.makePlanks(p);
+			if (Gear.count(bag, s -> s.is(ItemTags.PLANKS)) > 0) return firstBlockInBag(bag, s -> s.is(ItemTags.PLANKS), Blocks.OAK_PLANKS.defaultBlockState());
+		}
+		if (preferred.is(BlockTags.PLANKS)) {
+			if (Gear.count(bag, s -> s.is(ItemTags.PLANKS)) == 0 && Gear.count(bag, s -> s.is(ItemTags.LOGS)) > 0) Crafting.makePlanks(p);
+			if (Gear.count(bag, s -> s.is(ItemTags.PLANKS)) > 0) return firstBlockInBag(bag, s -> s.is(ItemTags.PLANKS), preferred);
+			if (Gear.count(bag, s -> s.is(ItemTags.STONE_TOOL_MATERIALS)) > 0) return Blocks.COBBLESTONE.defaultBlockState();
+		}
+		return preferred;
+	}
+
+	private static BlockState firstBlockInBag(net.minecraft.world.SimpleContainer bag, java.util.function.Predicate<ItemStack> pred, BlockState fallback) {
+		for (int i = 0; i < bag.getContainerSize(); i++) {
+			ItemStack s = bag.getItem(i);
+			if (pred.test(s) && s.getItem() instanceof BlockItem bi) return bi.getBlock().defaultBlockState();
+		}
+		return fallback;
 	}
 
 	private static void consumeMaterial(PartnerEntity p, BlockState state) {
 		var bag = p.backpack();
 		if (state.is(BlockTags.PLANKS)) {
-			if (Gear.take(bag, s -> s.is(ItemTags.PLANKS), 1) == 0) Crafting.makePlanks(p);
-			Gear.take(bag, s -> s.is(ItemTags.PLANKS), 1);
+			if (Gear.take(bag, s -> s.is(ItemTags.PLANKS), 1) == 0) {
+				Crafting.makePlanks(p);
+				Gear.take(bag, s -> s.is(ItemTags.PLANKS), 1);
+			}
 		} else if (state.is(BlockTags.LOGS)) {
-			Gear.take(bag, s -> s.is(ItemTags.LOGS), 1);
+			if (Gear.take(bag, s -> s.is(ItemTags.LOGS), 1) == 0) {
+				Gear.take(bag, s -> s.is(ItemTags.PLANKS), 1);
+			}
 		} else if (state.is(Blocks.COBBLESTONE)) {
-			Gear.take(bag, s -> s.is(ItemTags.STONE_TOOL_MATERIALS), 1);
+			if (Gear.take(bag, s -> s.is(ItemTags.STONE_TOOL_MATERIALS), 1) == 0) {
+				Gear.take(bag, s -> s.is(ItemTags.PLANKS), 1);
+			}
 		} else if (state.is(Blocks.TORCH)) {
 			Gear.take(bag, s -> s.is(Items.TORCH), 1);
 		}

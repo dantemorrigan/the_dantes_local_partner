@@ -56,7 +56,18 @@ public final class Gear {
 
 	public static int foodPoints(SimpleContainer c) {
 		int total = 0;
-		for (int i = 0; i < c.getContainerSize(); i++) if (isFood(c.getItem(i))) total += nutrition(c.getItem(i)) * c.getItem(i).getCount();
+		for (int i = 0; i < c.getContainerSize(); i++) {
+			ItemStack s = c.getItem(i);
+			if (s.isEmpty()) continue;
+			if (isFood(s)) {
+				total += nutrition(s) * s.getCount();
+			} else if (s.is(Items.CHICKEN) || s.is(Items.BEEF) || s.is(Items.PORKCHOP) || s.is(Items.MUTTON)
+					|| s.is(Items.RABBIT) || s.is(Items.COD) || s.is(Items.SALMON) || s.is(Items.POTATO)) {
+				total += 6 * s.getCount(); // raw food that can be cooked or eaten
+			} else if (s.is(Items.WHEAT)) {
+				total += (s.getCount() / 3) * 5; // wheat for bread
+			}
+		}
 		return total;
 	}
 

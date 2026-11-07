@@ -54,14 +54,17 @@ public final class ChopJob implements Job {
 	}
 
 	private int gathered(PartnerBrain brain) {
-		return brain.logs() + spent - startLogs;
+		int totalWood = brain.logs() + Gear.count(brain.p.backpack(), s -> s.is(ItemTags.PLANKS)) / 4;
+		return Math.max(0, totalWood + spent - startLogs);
 	}
 
 	@Override
 	public Status tick(PartnerBrain brain, ServerLevel level) {
 		PartnerEntity p = brain.p;
 		if (startLogs < 0) {
-			startLogs = brain.logs();
+			// For explicit WOOD order, gather `wanted` additional logs; for sub-jobs (build/auto/farm/expedition), count what's already in the backpack!
+			int totalWood = brain.logs() + Gear.count(p.backpack(), s -> s.is(ItemTags.PLANKS)) / 4;
+			startLogs = p.order() == com.dantemorrigan.partner.PartnerOrder.WOOD ? totalWood : 0;
 			anchor = p.blockPosition();
 		}
 		ticks++;
@@ -72,11 +75,20 @@ public final class ChopJob implements Job {
 			sub = null;
 			spent += Math.max(0, subLogsBefore - brain.logs());
 		}
+		// Collect what fell from the last tree before heading on or finishing.
+		if (collect > 0) {
+			collect--;
+			p.sweepDropsNow(level);
+			if (brain.collectDrops(level, p.position(), 7)) return Status.RUNNING;
+			collect = 0;
+		}
 		// Enough? (decided on its own)
 		int got = gathered(brain);
 		brain.detail = got + "/" + wanted;
 		boolean full = !p.backpack().canAddItem(new ItemStack(Items.OAK_LOG, 16));
 		if (got >= wanted || full || ticks > TIME_LIMIT && got > 0) {
+			p.sweepDropsNow(level);
+			if (brain.collectDrops(level, p.position(), 5)) return Status.RUNNING;
 			brain.say(full ? "full" : "done_wood", got);
 			return Status.DONE;
 		}
@@ -89,12 +101,6 @@ public final class ChopJob implements Job {
 					return Status.RUNNING;
 				}
 			}
-		}
-		// Collect what fell from the last tree before heading on.
-		if (collect > 0) {
-			collect--;
-			if (brain.collectDrops(level, p.position(), 6)) return Status.RUNNING;
-			collect = 0;
 		}
 		if (base == null) {
 			BlockPos search = anchor != null && p.blockPosition().distSqr(anchor) > 12 * 12 ? anchor : p.blockPosition();

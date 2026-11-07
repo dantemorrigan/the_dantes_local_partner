@@ -346,8 +346,15 @@ public class PartnerEntity extends PathfinderMob implements OwnableEntity {
 	/** Items lying around get collected into the backpack, like a player walking over them. */
 	private void pickUpItems(ServerLevel level) {
 		if (this.tickCount % 4 != 0 || this.isDeadOrDying()) return;
-		for (ItemEntity item : level.getEntitiesOfClass(ItemEntity.class, this.getBoundingBox().inflate(1.2, 0.6, 1.2))) {
-			if (item.isRemoved() || item.hasPickUpDelay() || item.getOwner() == this) continue;
+		sweepDropsNow(level);
+	}
+
+	/** Immediately collects nearby item drops into the backpack (used both on tick and right after breaking a block). */
+	public void sweepDropsNow(ServerLevel level) {
+		if (this.isDeadOrDying()) return;
+		for (ItemEntity item : level.getEntitiesOfClass(ItemEntity.class, this.getBoundingBox().inflate(2.6, 1.8, 2.6))) {
+			if (item.isRemoved() || item.getOwner() == this) continue;
+			if (item.hasPickUpDelay() && item.getOwner() != null) continue;
 			ItemStack stack = item.getItem();
 			if (InfinityCompat.isProtectedItem(stack) || !brain.wantsItem(stack)) continue;
 			int before = stack.getCount();

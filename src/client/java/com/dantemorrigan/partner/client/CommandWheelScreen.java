@@ -44,11 +44,11 @@ public final class CommandWheelScreen extends Screen {
 		return width < 456;
 	}
 
-	// Layout: title row (top 34 px), hint bar (bottom 34 px); the wheel and the description card share the rest.
-	private static final int TOP = 34, BOTTOM = 34, GAP = 6;
+	// Layout: title + mode bar (top 38 px), hint bar (bottom 36 px); the wheel, radar and description share the middle.
+	private static final int TOP = 38, BOTTOM = 36, GAP = 6;
 
 	private int cardW() {
-		return compact() ? Math.min(width - 20, 240) : 140;
+		return compact() ? Math.min(width - 20, 240) : 136;
 	}
 
 	private int cardH() {
@@ -59,8 +59,8 @@ public final class CommandWheelScreen extends Screen {
 
 	private float scale() {
 		float usable = compact() ? Math.min(width - 16, height - TOP - BOTTOM - cardH() - GAP * 2)
-				: Math.min(width - 2 * (cardW() + 16), height - TOP - BOTTOM);
-		return Math.max(0.35f, Math.min(1.25f, usable / SIZE));
+				: Math.min(width - 2 * (cardW() + 18), height - TOP - BOTTOM - 8);
+		return Math.max(0.35f, Math.min(0.92f, usable / SIZE));
 	}
 
 	private float cx() {
@@ -91,10 +91,10 @@ public final class CommandWheelScreen extends Screen {
 	}
 
 	private int extraButtonAt(double mx, double my) {
-		int barY = height - 54;
-		int btnW = 84, btnH = 20, gap = 6;
+		int barY = 10;
+		int btnW = 78, btnH = 20, gap = 5;
 		int totalW = 3 * btnW + 2 * gap;
-		int startX = (width - totalW) / 2;
+		int startX = width - 10 - totalW;
 		for (int i = 0; i < 3; i++) {
 			int bx = startX + i * (btnW + gap);
 			if (Ui.inside(mx, my, bx, barY, btnW, btnH)) return 6 + i;
@@ -186,11 +186,11 @@ public final class CommandWheelScreen extends Screen {
 			g.textWithWordWrap(font, description(), cardX + 7, cardY + 25, cardW - 14, Ui.MUTED, false);
 		}
 
-		// Special Mode Bar (Expedition [1], Build [2], Farm [3]) above the bottom hint bar.
-		int barY = height - 54;
-		int btnW = 84, btnH = 20, gap = 6;
+		// Special Mode Bar (Expedition [1], Build [2], Farm [3]) at top-right, aligned with the title bar.
+		int barY = 10;
+		int btnW = 78, btnH = 20, gap = 5;
 		int totalW = 3 * btnW + 2 * gap;
-		int startX = (width - totalW) / 2;
+		int startX = width - 10 - totalW;
 		for (int i = 0; i < 3; i++) {
 			int idx = 6 + i;
 			int bx = startX + i * (btnW + gap);

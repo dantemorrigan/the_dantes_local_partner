@@ -104,6 +104,16 @@ public final class BlockBreaker {
 		level.levelEvent(2001, target, Block.getId(state)); // break particles + sound
 		if (correct) Block.dropResources(state, level, target, be, p, tool);
 		level.removeBlock(target, false);
+		if (correct) {
+			// Pull freshly spawned block drops right to the partner and collect them immediately so nothing is left behind on branches/ledges.
+			for (var item : level.getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class, new net.minecraft.world.phys.AABB(target).inflate(2.5))) {
+				if (item.tickCount <= 2 && !item.isRemoved()) {
+					item.setNoPickUpDelay();
+					item.setPos(p.getX(), p.getY() + 0.2, p.getZ());
+				}
+			}
+			p.sweepDropsNow(level);
+		}
 		if (!tool.isEmpty() && !instant) tool.hurtAndBreak(1, p, EquipmentSlot.MAINHAND);
 		p.causeExhaustion(0.005f);
 		pos = null;
