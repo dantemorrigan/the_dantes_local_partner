@@ -86,7 +86,11 @@ public final class ClientRealm {
 		}
 	}
 
-	public record TView(int id, int kingdom, int[] name, int x, int z, boolean capital, int[] types, int done, int building, boolean ruin) {
+	public record RView(int id, int kingdom, int level, float progress, int[] cells) {}
+
+	public static final List<RView> roads = new ArrayList<>();
+
+	public record TView(int id, int kingdom, int[] name, int x, int z, boolean capital, int[] types, int done, int building, boolean ruin, int wall, float wallp) {
 		public Component title() {
 			return Names.component(name);
 		}
@@ -285,7 +289,11 @@ public final class ClientRealm {
 			if (!(t instanceof CompoundTag c)) continue;
 			towns.add(new TView(c.getIntOr("id", 0), c.getIntOr("k", 0), c.getIntArray("name").orElse(new int[]{0, 40}),
 					c.getIntOr("x", 0), c.getIntOr("z", 0), c.getBooleanOr("cap", false), c.getIntArray("types").orElse(new int[0]),
-					c.getIntOr("done", 0), c.getIntOr("building", 0), c.getBooleanOr("ruin", false)));
+					c.getIntOr("done", 0), c.getIntOr("building", 0), c.getBooleanOr("ruin", false), c.getIntOr("wall", 0), c.getFloatOr("wallp", 0)));
+		}
+		roads.clear();
+		for (Tag t : d.getListOrEmpty("roads")) {
+			if (t instanceof CompoundTag c) roads.add(new RView(c.getIntOr("id", 0), c.getIntOr("k", 0), c.getIntOr("lv", 0), c.getFloatOr("p", 0), c.getIntArray("cells").orElse(new int[0])));
 		}
 	}
 
@@ -393,6 +401,7 @@ public final class ClientRealm {
 		towns.clear();
 		armies.clear();
 		caravans.clear();
+		roads.clear();
 		news.clear();
 	}
 

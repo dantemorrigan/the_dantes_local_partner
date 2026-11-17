@@ -137,6 +137,20 @@ public final class Sync {
 		return d;
 	}
 
+	static void roads(Realm r, CompoundTag d) {
+		ListTag rs = new ListTag();
+		for (com.dantemorrigan.kingdoms.sim.Road ro : r.roads.values()) {
+			CompoundTag t = new CompoundTag();
+			t.putInt("id", ro.id);
+			t.putInt("k", ro.kingdom);
+			t.putInt("lv", ro.level);
+			t.putFloat("p", ro.progress);
+			t.putIntArray("cells", ro.cells);
+			rs.add(t);
+		}
+		d.put("roads", rs);
+	}
+
 	static void moving(Realm r, CompoundTag d) {
 		ListTag as = new ListTag();
 		for (Army a : r.armies.values()) as.add(a.save());
@@ -222,9 +236,12 @@ public final class Sync {
 			t.putInt("done", done);
 			t.putInt("building", building);
 			t.putBoolean("ruin", s.kingdom == 0);
+			t.putInt("wall", s.wall);
+			t.putFloat("wallp", s.wallProgress);
 			ss.add(t);
 		}
 		d.put("towns", ss);
+		roads(r, d);
 		moving(r, d);
 	}
 

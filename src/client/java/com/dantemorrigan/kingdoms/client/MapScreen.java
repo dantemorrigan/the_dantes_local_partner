@@ -205,6 +205,8 @@ public final class MapScreen extends Screen {
 		if (zoom >= 14) grid(g, n);
 		if (mode == MapTextures.Mode.DIPLOMACY) diplomacyLines(g);
 		labels(g);
+		roads(g);
+		walls(g);
 		towns(g, mx, my);
 		caravans(g);
 		armies(g);
@@ -242,6 +244,72 @@ public final class MapScreen extends Screen {
 			for (int d = 0; d < 4; d++) g.text(font, txt, -tw / 2 + (d == 0 ? 1 : d == 1 ? -1 : 0), -4 + (d == 2 ? 1 : d == 3 ? -1 : 0), 0xCCF5EEDC, false);
 			g.text(font, txt, -tw / 2, -4, 0xFF000000 | col, false);
 			g.pose().popMatrix();
+		}
+	}
+
+	private boolean waterCell(int cell) {
+		if (ClientRealm.tSize == 0) return false;
+		int n = ClientRealm.n, cx = cell % n, cz = cell / n;
+		int s = Math.min(ClientRealm.tSize - 1, cx * 2 + 1), t = Math.min(ClientRealm.tSize - 1, cz * 2 + 1);
+		return com.dantemorrigan.kingdoms.sim.Terrain.water(ClientRealm.tCls[t * ClientRealm.tSize + s] & 15);
+	}
+
+	/** Roads as lines between the cells they cross: width and colour by age, bridges brown, railways striped. */
+	private void roads(GuiGraphicsExtractor g) {
+		if (zoom < 2f) return;
+		for (ClientRealm.RView ro : ClientRealm.roads) {
+			int n = ClientRealm.n;
+			int[] cells = ro.cells();
+			int upto = (int) Math.floor(ro.progress() * (cells.length - 1));
+			int lv = ro.level();
+			int base = switch (lv) {
+				case 0 -> 0xCC9C7A4A;
+				case 1 -> 0xDDD9C48A;
+				case 2 -> 0xEEE6E0D0;
+				case 3 -> 0xFFFFFFFF;
+				default -> 0xFF202020;
+			};
+			int thick = lv >= 3 ? 2 : 1;
+			for (int i = 0; i < Math.min(upto, cells.length - 1); i++) {
+				float x1 = sx(cells[i] % n + 0.5f), y1 = sy(cells[i] / n + 0.5f), x2 = sx(cells[i + 1] % n + 0.5f), y2 = sy(cells[i + 1] / n + 0.5f);
+				if (Math.max(x1, x2) < mapX1 || Math.min(x1, x2) > mapX2 || Math.max(y1, y2) < mapY1 || Math.min(y1, y2) > mapY2) continue;
+				boolean bridge = waterCell(cells[i]) || waterCell(cells[i + 1]);
+				int steps = (int) Math.max(Math.abs(x2 - x1), Math.abs(y2 - y1));
+				for (int s = 0; s <= steps; s++) {
+					float t = steps == 0 ? 0 : s / (float) steps;
+					int px = (int) (x1 + (x2 - x1) * t), py = (int) (y1 + (y2 - y1) * t);
+					int col = bridge ? 0xFFB07A3A : base;
+					if (lv == 4 && (s / 3) % 2 == 0) col = bridge ? 0xFF8A5A2A : 0xFFEFEFEF;
+					g.fill(px, py, px + thick + (bridge ? 1 : 0), py + thick + (bridge ? 1 : 0), col);
+				}
+			}
+		}
+	}
+
+	/** A town wall: a square ring of the kingdom's dark colour, with a dot for each tower. */
+	private void walls(GuiGraphicsExtractor g) {
+		if (zoom < 3.5f) return;
+		float half = com.dantemorrigan.kingdoms.sim.Settlement.WALL_R / (float) Realm.CELL;
+		for (ClientRealm.TView t : ClientRealm.towns) {
+			if (t.wall() == 0 || t.wallp() <= 0) continue;
+			float cxs = ClientRealm.cellX(t.x()), czs = ClientRealm.cellZ(t.z());
+			int x1 = (int) sx(cxs - half), y1 = (int) sy(czs - half), x2 = (int) sx(cxs + half), y2 = (int) sy(czs + half);
+			if (x2 < mapX1 || x1 > mapX2 || y2 < mapY1 || y1 > mapY2) continue;
+			ClientRealm.KView k = ClientRealm.kingdom(t.kingdom());
+			int col = k == null ? 0xFF404040 : MapTextures.shade(0xFF000000 | k.color(), 0.45f);
+			float prog = Math.min(1f, t.wallp());
+			// the finished part of the ring, clockwise from the north-west corner
+			int per = (x2 - x1) * 4, done = (int) (per * prog);
+			for (int s = 0; s < done; s += 2) {
+				int side = s / (x2 - x1), pos = s % (x2 - x1);
+				int px = side == 0 ? x1 + pos : side == 1 ? x2 : side == 2 ? x2 - pos : x1;
+				int py = side == 0 ? y1 : side == 1 ? y1 + pos : side == 2 ? y2 : y2 - pos;
+				g.fill(px, py, px + 2, py + 2, col);
+			}
+			if (prog >= 1f) {
+				int[][] spots = {{x1, y1}, {(x1 + x2) / 2, y1}, {x2, y1}, {x2, (y1 + y2) / 2}, {x2, y2}, {(x1 + x2) / 2, y2}, {x1, y2}, {x1, (y1 + y2) / 2}};
+				for (int[] sp : spots) g.fill(sp[0] - 2, sp[1] - 2, sp[0] + 3, sp[1] + 3, 0xFFF2E6C0);
+			}
 		}
 	}
 
