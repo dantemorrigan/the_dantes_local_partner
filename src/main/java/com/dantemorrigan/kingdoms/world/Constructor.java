@@ -28,7 +28,7 @@ import java.util.Map;
  */
 public final class Constructor {
 	private static final int PREP = Settlement.PLOT * Settlement.PLOT;
-	private static final int CLEAR = 12;
+	private static final int CLEAR = 44;
 	private static final Map<String, Blueprint> CACHE = new LinkedHashMap<>(64, 0.75f, true) {
 		@Override
 		protected boolean removeEldestEntry(Map.Entry<String, Blueprint> e) {
@@ -36,9 +36,34 @@ public final class Constructor {
 		}
 	};
 
+	/** Chimneys and stacks breathe: smoke from fires, steam from the industrial age's stacks. */
+	static void ambient(ServerLevel level, Realm realm, List<ServerPlayer> players) {
+		for (Settlement s : realm.settlements.values()) {
+			if (!near(players, s.x, s.z, 90)) continue;
+			Kingdom k = realm.kingdoms.get(s.kingdom);
+			int dye = k != null ? k.dye : 7;
+			for (Settlement.Building b : s.buildings) {
+				if (!b.done() || b.ruined || b.y == Integer.MIN_VALUE || pending(realm, s, b)) continue;
+				Blueprint bp = blueprint(b, dye);
+				if (bp.emitters.isEmpty()) continue;
+				Rotation rot = rotation(s, b);
+				for (int[] e : bp.emitters) {
+					int[] xz = rotate(e[0], e[2], rot);
+					double x = b.px + xz[0] + 0.5, y = b.y + e[1], z = b.pz + xz[1] + 0.5;
+					switch (e[3]) {
+						case 2 -> level.sendParticles(ParticleTypes.CLOUD, x, y, z, 3, 0.2, 0.4, 0.2, 0.03);
+						case 3 -> level.sendParticles(ParticleTypes.FLAME, x, y, z, 2, 0.2, 0.2, 0.2, 0.04);
+						default -> level.sendParticles(ParticleTypes.LARGE_SMOKE, x, y, z, 1, 0.12, 0.3, 0.12, 0.015);
+					}
+				}
+			}
+		}
+	}
+
 	public static void tick(ServerLevel level, Realm realm) {
 		int budget = 600;
 		List<ServerPlayer> players = level.players();
+		if (level.getGameTime() % 6 == 0) ambient(level, realm, players);
 		for (Settlement s : realm.settlements.values()) {
 			if (budget <= 0) break;
 			if (!near(players, s.x, s.z, 260)) continue;

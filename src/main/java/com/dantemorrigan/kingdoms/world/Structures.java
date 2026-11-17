@@ -61,42 +61,31 @@ public final class Structures {
 		Blueprint b = new Blueprint();
 		b.gableWall = p.wall;
 		switch (type) {
-			case KEEP -> keep(b, p, era, cloth, dye);
-			case TOWN_HALL -> townHall(b, p, cloth);
-			case HOUSE -> house(b, p, r);
+			case KEEP -> Architecture.keep(b, p, era, cloth, dye);
+			case TOWN_HALL -> Architecture.townHall(b, p, era, cloth);
+			case HOUSE -> Architecture.house(b, p, era, r);
 			case FARM -> farm(b, era, r);
 			case LUMBER_CAMP -> lumber(b, p);
 			case QUARRY -> quarry(b, era);
 			case MINE -> mine(b, p);
-			case BARRACKS -> barracks(b, p, cloth);
-			case SMITHY -> smithy(b, p, era);
+			case BARRACKS -> Architecture.barracks(b, p, era, cloth);
+			case SMITHY -> Architecture.smithy(b, p, era);
 			case MARKET -> market(b, p, cloth);
-			case TEMPLE -> temple(b, p, era);
-			case LIBRARY -> library(b, p);
-			case WALL_TOWER -> tower(b, p, cloth);
-			case WORKSHOP -> workshop(b, p);
-			case FACTORY -> factory(b, p);
+			case TEMPLE -> Architecture.temple(b, p, era);
+			case LIBRARY -> Architecture.library(b, p, era);
+			case WALL_TOWER -> Architecture.tower(b, p, era, cloth);
+			case WORKSHOP -> Architecture.workshop(b, p, era);
+			case FACTORY -> Architecture.factory(b, p, era);
+			case WINDMILL -> Architecture.windmill(b, p, era);
+			case SAWMILL -> Architecture.sawmill(b, p, era);
+			case FOUNDRY -> Architecture.foundry(b, p, era);
+			case UNIVERSITY -> Architecture.university(b, p, era);
+			case STATION -> Architecture.station(b, p, era);
 		}
 		return b;
 	}
 
 	// ---------------------------------------------------------------- designs
-
-	static void house(Blueprint b, Palette p, RandomSource r) {
-		int x1 = 2, z1 = 2, x2 = 8 + (r.nextBoolean() ? 1 : 0), z2 = 7 + (r.nextBoolean() ? 1 : 0);
-		b.hollow(x1, 1, z1, x2, 6, z2);
-		b.fill(x1, 0, z1, x2, 0, z2, p.found);
-		b.fill(x1 + 1, 0, z1 + 1, x2 - 1, 0, z2 - 1, p.floor);
-		b.walls(x1, z1, x2, z2, 1, 3, p.wall);
-		b.corners(x1, z1, x2, z2, 1, 3, p.frame);
-		b.door(5, 1, z1, p.door, Direction.NORTH);
-		b.set(x1, 2, (z1 + z2) / 2, p.window).set(x2, 2, (z1 + z2) / 2, p.window).set(3, 2, z2, p.window).set(x2 - 1, 2, z2, p.window);
-		b.roof(x1 - 1, z1 - 1, x2 + 1, z2 + 1, 4, p.roof, p.roofTop);
-		b.set(x1 + 1, 1, z2 - 1, Blocks.CRAFTING_TABLE).set(x2 - 1, 1, z2 - 1, Blocks.CHEST).set(x1 + 1, 1, z1 + 1, p.light.is(Blocks.TORCH) ? p.light : Blocks.TORCH.defaultBlockState());
-		b.set(x2 - 1, 1, z1 + 1, Blocks.BARREL);
-		// a little garden
-		b.set(3, 1, 1, Blocks.POPPY).set(7, 1, 1, Blocks.DANDELION);
-	}
 
 	static void farm(Blueprint b, int era, RandomSource r) {
 		int lo = era == 0 ? 1 : 2, hi = era == 0 ? 10 : 9;
@@ -175,32 +164,6 @@ public final class Structures {
 		b.set(3, 1, 1, Blocks.IRON_ORE).set(7, 1, 1, Blocks.COAL_ORE);
 	}
 
-	static void barracks(Blueprint b, Palette p, BlockState cloth) {
-		b.hollow(1, 1, 2, 9, 7, 8);
-		b.fill(1, 0, 2, 9, 0, 8, p.found);
-		b.walls(1, 2, 9, 8, 1, 4, p.wall);
-		b.corners(1, 2, 9, 8, 1, 4, p.frame);
-		b.door(5, 1, 2, p.door, Direction.NORTH);
-		for (int x = 3; x <= 7; x += 2) b.set(x, 3, 2, p.window).set(x, 3, 8, p.window);
-		b.roof(0, 1, 10, 9, 5, p.roof, p.roofTop);
-		b.set(2, 1, 7, Blocks.HAY_BLOCK).set(2, 2, 7, Blocks.TARGET).set(8, 1, 7, Blocks.CHEST).set(5, 1, 7, Blocks.SMITHING_TABLE);
-		b.set(5, 4, 5, p.light.is(Blocks.TORCH) ? Blocks.LANTERN.defaultBlockState() : p.light);
-		b.flag(1, 5, 9, cloth, true);
-		b.flag(9, 5, 9, cloth, false);
-	}
-
-	static void smithy(Blueprint b, Palette p, int era) {
-		b.hollow(1, 1, 1, 10, 6, 10);
-		b.fill(2, 0, 2, 8, 0, 8, p.found);
-		b.corners(2, 2, 8, 8, 1, 3, p.frame);
-		b.roof(1, 1, 9, 9, 4, p.roof, p.roofTop);
-		b.set(4, 1, 4, Blocks.ANVIL).set(6, 1, 6, era >= 2 ? Blocks.BLAST_FURNACE : Blocks.FURNACE).set(7, 1, 6, Blocks.FURNACE);
-		b.set(3, 1, 7, Blocks.CAULDRON).set(5, 1, 7, Blocks.GRINDSTONE).set(7, 1, 3, Blocks.SMITHING_TABLE);
-		// chimney
-		b.fill(8, 1, 8, 8, 7, 8, Blocks.COBBLESTONE.defaultBlockState());
-		b.set(8, 8, 8, Blocks.CAMPFIRE);
-	}
-
 	static void market(Blueprint b, Palette p, BlockState cloth) {
 		b.hollow(1, 1, 1, 10, 5, 10);
 		b.fill(1, 0, 1, 10, 0, 10, p.road);
@@ -215,135 +178,6 @@ public final class Structures {
 		}
 		b.set(5, 1, 5, Blocks.BELL);
 		b.set(9, 1, 9, Blocks.HAY_BLOCK).set(1, 1, 9, p.light.is(Blocks.TORCH) ? p.light : Blocks.LANTERN.defaultBlockState());
-	}
-
-	static void temple(Blueprint b, Palette p, int era) {
-		b.hollow(2, 1, 1, 8, 10, 10);
-		b.fill(2, 0, 1, 8, 0, 10, p.found);
-		b.fill(3, 0, 2, 7, 0, 9, p.floor);
-		b.walls(2, 1, 8, 10, 1, 5, era >= 2 ? p.wall : p.fortress);
-		b.corners(2, 1, 8, 10, 1, 6, p.frame);
-		b.door(5, 1, 1, p.door, Direction.NORTH);
-		for (int z = 3; z <= 8; z += 2) b.set(2, 3, z, p.window).set(2, 4, z, p.window).set(8, 3, z, p.window).set(8, 4, z, p.window);
-		b.roof(1, 0, 9, 11, 6, p.roof, p.roofTop);
-		b.set(5, 1, 9, era >= 3 ? Blocks.ENCHANTING_TABLE : era >= 2 ? Blocks.GOLD_BLOCK : Blocks.CHISELED_STONE_BRICKS);
-		b.set(4, 1, 9, Blocks.CANDLE).set(6, 1, 9, Blocks.CANDLE);
-		for (int z = 4; z <= 7; z++) b.set(5, 0, z, Blocks.RED_CARPET).set(5, 1, z, Blocks.RED_CARPET);
-		// bell tower over the entrance
-		b.fill(4, 6, 2, 6, 9, 3, p.fortress);
-		b.hollow(5, 8, 2, 5, 8, 3);
-		b.set(5, 10, 2, p.roofTop);
-	}
-
-	static void library(Blueprint b, Palette p) {
-		b.hollow(2, 1, 2, 9, 7, 9);
-		b.fill(2, 0, 2, 9, 0, 9, p.found);
-		b.fill(3, 0, 3, 8, 0, 8, p.floor);
-		b.walls(2, 2, 9, 9, 1, 4, p.wall);
-		b.corners(2, 2, 9, 9, 1, 4, p.frame);
-		b.door(5, 1, 2, p.door, Direction.NORTH);
-		b.set(2, 3, 5, p.window).set(9, 3, 5, p.window).set(2, 3, 6, p.window).set(9, 3, 6, p.window);
-		b.roof(1, 1, 10, 10, 5, p.roof, p.roofTop);
-		for (int x = 3; x <= 8; x++) b.set(x, 1, 8, Blocks.BOOKSHELF).set(x, 2, 8, Blocks.BOOKSHELF);
-		for (int z = 4; z <= 7; z++) b.set(3, 1, z, Blocks.BOOKSHELF).set(8, 1, z, Blocks.BOOKSHELF);
-		b.set(5, 1, 5, Blocks.LECTERN).set(6, 1, 5, Blocks.CARTOGRAPHY_TABLE).set(5, 4, 5, Blocks.LANTERN);
-	}
-
-	static void tower(Blueprint b, Palette p, BlockState cloth) {
-		b.hollow(3, 1, 3, 7, 12, 7);
-		b.fill(3, 0, 3, 7, 0, 7, p.found);
-		b.walls(3, 3, 7, 7, 1, 8, p.fortress);
-		b.door(5, 1, 3, p.door, Direction.NORTH);
-		b.set(3, 5, 5, Blocks.AIR).set(7, 5, 5, Blocks.AIR).set(5, 5, 7, Blocks.AIR);
-		b.fill(4, 8, 4, 6, 8, 6, p.floor);
-		b.ladder(6, 1, 8, 6, Direction.NORTH);
-		b.set(6, 8, 6, Blocks.LADDER.defaultBlockState().setValue(net.minecraft.world.level.block.LadderBlock.FACING, Direction.NORTH));
-		b.battlements(3, 3, 7, 7, 9, p.fortress);
-		b.flag(5, 9, 5, cloth, true);
-		b.set(4, 9, 4, Blocks.LANTERN);
-	}
-
-	static void workshop(Blueprint b, Palette p) {
-		b.hollow(1, 1, 2, 9, 7, 9);
-		b.fill(1, 0, 2, 9, 0, 9, p.found);
-		b.walls(1, 2, 9, 9, 1, 4, p.wall);
-		b.corners(1, 2, 9, 9, 1, 4, p.frame);
-		b.door(5, 1, 2, p.door, Direction.NORTH);
-		for (int x = 3; x <= 7; x += 2) b.set(x, 2, 2, p.window).set(x, 3, 2, p.window).set(x, 2, 9, p.window);
-		b.roof(0, 1, 10, 10, 5, p.roof, p.roofTop);
-		b.set(2, 1, 8, Blocks.LOOM).set(3, 1, 8, Blocks.STONECUTTER).set(4, 1, 8, Blocks.SMITHING_TABLE).set(6, 1, 8, Blocks.CARTOGRAPHY_TABLE)
-				.set(7, 1, 8, Blocks.FLETCHING_TABLE).set(8, 1, 8, Blocks.CRAFTER).set(5, 4, 5, Blocks.LANTERN);
-	}
-
-	static void factory(Blueprint b, Palette p) {
-		b.hollow(1, 1, 1, 10, 8, 10);
-		b.fill(1, 0, 1, 10, 0, 10, p.found);
-		b.walls(1, 1, 10, 10, 1, 5, p.wall);
-		b.corners(1, 1, 10, 10, 1, 5, p.frame);
-		b.door(5, 1, 1, Blocks.IRON_DOOR, Direction.NORTH);
-		for (int x = 3; x <= 8; x += 2) for (int y = 2; y <= 3; y++) b.set(x, y, 1, Blocks.IRON_BARS).set(x, y, 10, Blocks.IRON_BARS);
-		b.fill(1, 6, 1, 10, 6, 10, Blocks.SMOOTH_STONE_SLAB.defaultBlockState());
-		// chimney stacks
-		b.fill(8, 1, 8, 9, 14, 9, Blocks.BRICKS.defaultBlockState());
-		b.set(8, 15, 8, Blocks.CAMPFIRE).set(9, 15, 9, Blocks.CAMPFIRE);
-		b.fill(2, 1, 8, 2, 9, 8, Blocks.BRICKS.defaultBlockState());
-		b.set(2, 10, 8, Blocks.CAMPFIRE);
-		b.set(3, 1, 3, Blocks.BLAST_FURNACE).set(4, 1, 3, Blocks.BLAST_FURNACE).set(6, 1, 3, Blocks.PISTON).set(7, 1, 3, Blocks.OBSERVER);
-		b.set(3, 1, 6, Blocks.HOPPER).set(4, 1, 6, Blocks.CHEST).set(5, 4, 5, Blocks.LANTERN).set(6, 1, 6, Blocks.ANVIL);
-	}
-
-	static void townHall(Blueprint b, Palette p, BlockState cloth) {
-		b.hollow(1, 1, 1, 10, 9, 10);
-		b.fill(1, 0, 1, 10, 0, 10, p.road);
-		b.fill(2, 0, 2, 9, 0, 9, p.found);
-		b.fill(3, 0, 3, 8, 0, 8, p.floor);
-		b.walls(2, 2, 9, 9, 1, 4, p.wall);
-		b.corners(2, 2, 9, 9, 1, 5, p.frame);
-		b.door(5, 1, 2, p.door, Direction.NORTH);
-		b.door(6, 1, 2, p.door, Direction.NORTH);
-		b.set(2, 3, 5, p.window).set(9, 3, 5, p.window).set(4, 3, 9, p.window).set(7, 3, 9, p.window);
-		b.roof(1, 1, 10, 10, 5, p.roof, p.roofTop);
-		b.set(5, 1, 8, Blocks.LECTERN).set(4, 1, 8, Blocks.CHEST).set(5, 4, 5, Blocks.LANTERN);
-		b.set(5, 9, 5, Blocks.BELL);
-		b.flag(1, 1, 1, cloth, true);
-	}
-
-	static void keep(Blueprint b, Palette p, int era, BlockState cloth, int dye) {
-		BlockState wall = era == 0 ? Blocks.OAK_LOG.defaultBlockState() : era == 1 ? Blocks.COBBLESTONE.defaultBlockState() : p.fortress;
-		b.hollow(0, 1, 0, 11, 16, 11);
-		b.fill(0, 0, 0, 11, 0, 11, p.road);
-		b.fill(2, 0, 2, 9, 0, 9, p.found);
-		b.fill(3, 0, 3, 8, 0, 8, p.floor);
-		int h = 4 + Math.min(era, 3) * 2;
-		b.walls(2, 2, 9, 9, 1, h, wall);
-		b.door(5, 1, 2, p.door, Direction.NORTH);
-		b.door(6, 1, 2, p.door, Direction.NORTH);
-		for (int y = 3; y < h; y += 3) {
-			b.set(2, y, 5, p.window).set(9, y, 5, p.window).set(2, y, 6, p.window).set(9, y, 6, p.window);
-		}
-		// upper floor
-		b.fill(3, h - 1, 3, 8, h - 1, 8, p.floor);
-		b.hollow(7, h - 1, 7, 7, h - 1, 7);
-		b.ladder(7, 1, h, 8, Direction.NORTH);
-		b.fill(2, h + 1, 2, 9, h + 1, 9, p.floor);
-		b.battlements(2, 2, 9, 9, h + 2, wall);
-		// corner towers
-		int th = h + 3;
-		int[][] cs = {{1, 1}, {9, 1}, {1, 9}, {9, 9}};
-		for (int[] c : cs) {
-			b.fill(c[0], 1, c[1], c[0] + 1, th, c[1] + 1, wall);
-			b.set(c[0], th + 1, c[1], wall).set(c[0] + 1, th + 1, c[1] + 1, wall);
-		}
-		b.flag(1, th + 1, 2, cloth, false);
-		b.flag(10, th + 1, 9, cloth, true);
-		// the throne room
-		BlockState carpet = CARPET[Math.floorMod(dye, 16)].defaultBlockState();
-		for (int z = 3; z <= 7; z++) b.set(5, 1, z, carpet).set(6, 1, z, carpet);
-		b.set(5, 1, 8, era >= 1 ? Blocks.GOLD_BLOCK : Blocks.CHISELED_STONE_BRICKS).set(6, 1, 8, era >= 1 ? Blocks.GOLD_BLOCK : Blocks.CHISELED_STONE_BRICKS);
-		b.set(5, 2, 8, Blocks.OAK_STAIRS).set(6, 2, 8, Blocks.OAK_STAIRS);
-		b.set(5, 3, 9, cloth).set(6, 3, 9, cloth);
-		b.set(3, 1, 3, p.light.is(Blocks.TORCH) ? Blocks.LANTERN.defaultBlockState() : p.light).set(8, 1, 3, Blocks.LANTERN.defaultBlockState());
-		b.set(3, 1, 8, Blocks.CHEST).set(8, 1, 8, Blocks.CHEST);
 	}
 
 	private Structures() {}

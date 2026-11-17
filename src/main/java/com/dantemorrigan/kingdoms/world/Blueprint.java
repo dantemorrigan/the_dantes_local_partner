@@ -28,6 +28,13 @@ public final class Blueprint {
 	public record Entry(int x, int y, int z, BlockState state, boolean flag) {}
 
 	private final Map<Long, Entry> map = new LinkedHashMap<>();
+	/** Places that breathe: chimneys and stacks (kind 1 smoke, 2 steam, 3 sparks), plot-relative like the blocks. */
+	public final List<int[]> emitters = new ArrayList<>();
+
+	public Blueprint emit(int x, int y, int z, int kind) {
+		emitters.add(new int[]{x, y, z, kind});
+		return this;
+	}
 	private List<Entry> sorted;
 
 	private static long key(int x, int y, int z) {
@@ -142,7 +149,7 @@ public final class Blueprint {
 		return this;
 	}
 
-	private Blueprint pyramid(int x1, int z1, int x2, int z2, int y, BlockState stairs, BlockState slab) {
+	public Blueprint pyramid(int x1, int z1, int x2, int z2, int y, BlockState stairs, BlockState slab) {
 		for (int i = 0; x1 + i <= x2 - i && z1 + i <= z2 - i; i++) {
 			int xl = x1 + i, xr = x2 - i, zl = z1 + i, zr = z2 - i;
 			if (xr - xl < 2 || zr - zl < 2) {
