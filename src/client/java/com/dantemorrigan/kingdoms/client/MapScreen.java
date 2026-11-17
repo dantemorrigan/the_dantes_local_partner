@@ -615,17 +615,17 @@ public final class MapScreen extends Screen {
 
 	private void chronicle(GuiGraphicsExtractor g, int mx, int my) {
 		if (ClientRealm.news.isEmpty()) return;
-		int w = Math.min(220, (mapX2 - mapX1) - 12);
+		int w = Math.min(190, (mapX2 - mapX1) / 2);
 		int x = mapX2 - w - 4;
 		int y = mapY2 - 4;
 		int shown = 0;
-		for (int i = ClientRealm.news.size() - 1; i >= 0 && shown < 6; i--) {
+		for (int i = ClientRealm.news.size() - 1; i >= 0 && shown < 4; i--) {
 			Chronicle.Entry e = ClientRealm.news.get(i);
 			if (e.level() == 0 && shown > 2) continue;
 			List<FormattedCharSequence> lines = font.split(e.text(), (int) ((w - 8) / 0.75f));
 			int h = (int) (lines.size() * 9 * 0.75f) + 4;
 			y -= h + 1;
-			if (y < mapY1 + 40) break;
+			if (y < (mapY1 + mapY2) / 2) break;
 			boolean hov = Ui2.inside(mx, my, x, y, w, h);
 			g.fill(x, y, x + w, y + h, hov ? 0xCC2A2416 : 0xAA0D1220);
 			g.fill(x, y, x + 2, y + h, e.level() >= 2 ? GOLD : e.level() == 1 ? 0xFF8FA8D8 : 0xFF666666);

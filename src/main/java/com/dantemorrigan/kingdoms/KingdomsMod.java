@@ -137,7 +137,7 @@ public final class KingdomsMod implements ModInitializer {
 		for (int i = Math.max(announced, r.chronicle.size() - 5); i < r.chronicle.size(); i++) {
 			Chronicle.Entry e = r.chronicle.get(i);
 			if (e.level() < 2) continue;
-			MutableComponent msg = Component.literal("👑 ").withStyle(net.minecraft.ChatFormatting.GOLD).append(e.text().withStyle(net.minecraft.ChatFormatting.YELLOW));
+			MutableComponent msg = Component.literal("♛ ").withStyle(net.minecraft.ChatFormatting.GOLD).append(e.text().withStyle(net.minecraft.ChatFormatting.YELLOW));
 			for (ServerPlayer p : s.getPlayerList().getPlayers()) p.sendSystemMessage(msg);
 		}
 		announced = r.chronicle.size();
