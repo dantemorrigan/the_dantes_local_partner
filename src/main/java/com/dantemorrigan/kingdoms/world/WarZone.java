@@ -40,6 +40,18 @@ public final class WarZone {
 	private static final Map<Integer, Boolean> DEPLOYED = new HashMap<>();
 	private static final Map<Integer, Squad> BRAINS = new HashMap<>();
 
+	/** For tests and logs: what every squad in the world is doing. */
+	public static String debug() {
+		StringBuilder b = new StringBuilder();
+		for (Map.Entry<Integer, Squad> e : BRAINS.entrySet()) {
+			Squad q = e.getValue();
+			b.append(" [army ").append(e.getKey()).append(' ').append(q.mode).append(" attempts ").append(q.attempts).append(" stuck ").append(q.stuck);
+			if (q.commander != null) b.append(" cmd ").append((int) q.commander.getX()).append(',').append((int) q.commander.getY()).append(',').append((int) q.commander.getZ());
+			b.append(']');
+		}
+		return b.toString();
+	}
+
 	public static void clear() {
 		SQUADS.clear();
 		MERCHANTS.clear();

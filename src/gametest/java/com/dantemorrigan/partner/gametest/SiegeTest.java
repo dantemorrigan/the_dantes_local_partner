@@ -63,12 +63,12 @@ public class SiegeTest implements FabricClientGameTest {
 			server.runOnServer(s -> GodPowers.act(s.getPlayerList().getPlayers().getFirst(), "observe", 0, 0, town[2] + town[4] - 2, town[3]));
 			ctx.waitTicks(60);
 			int gy = server.computeOnServer(s -> s.overworld().getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, town[2], town[3] - town[4]));
-			server.runCommand("tp @p " + town[2] + " " + (gy + 4) + " " + (town[3] - town[4] - 24) + " 0 12");
+			server.runCommand("tp @p " + (town[2] + 12) + " " + (gy + 16) + " " + (town[3] - town[4] - 26) + " facing " + town[2] + " " + (gy + 4) + " " + (town[3] - town[4]));
 			ctx.waitTicks(80);
 			System.out.println("SIEGE at the gate: " + server.computeOnServer(SiegeTest::stats));
 			ctx.takeScreenshot("s1_gate");
 			// the barracks yard
-			server.runCommand("tp @p " + (town[5] + 6) + " " + (gy + 14) + " " + (town[6] - 10) + " 0 40");
+			server.runCommand("tp @p " + (town[5] + 6) + " " + (gy + 22) + " " + (town[6] - 12) + " facing " + (town[5] + 6) + " " + gy + " " + (town[6] + 8));
 			ctx.waitTicks(80);
 			ctx.takeScreenshot("s2_barracks");
 
@@ -84,10 +84,20 @@ public class SiegeTest implements FabricClientGameTest {
 				Realm.TIME_SCALE = 30;
 			});
 			server.runOnServer(s -> GodPowers.act(s.getPlayerList().getPlayers().getFirst(), "observe", 0, 0, town[2], town[3] - town[4] - 50));
-			for (int step = 0; step < 6; step++) {
-				ctx.waitTicks(20 * 12);
-				System.out.println("SIEGE t+" + (step + 1) * 12 + "s: " + server.computeOnServer(SiegeTest::stats));
-				ctx.takeScreenshot("s3_siege_" + step);
+			for (int step = 0; step < 24; step++) {
+				ctx.waitTicks(20 * 4);
+				String d = server.computeOnServer(s2 -> com.dantemorrigan.kingdoms.world.WarZone.debug());
+				System.out.println("SIEGE t+" + (step + 1) * 4 + "s: " + server.computeOnServer(SiegeTest::stats) + d);
+				// the camera follows the first commander, seen from behind and above
+				double[] c = server.computeOnServer(s2 -> {
+					for (var e : s2.overworld().getAllEntities()) if (e instanceof CitizenEntity ce && ce.commander) return new double[]{ce.getX(), ce.getY(), ce.getZ()};
+					return null;
+				});
+				if (c != null && step % 3 == 2) {
+					server.runCommand("tp @p " + (c[0] - 16) + " " + (c[1] + 14) + " " + (c[2] - 16) + " facing " + c[0] + " " + c[1] + " " + c[2]);
+					ctx.waitTicks(10);
+					ctx.takeScreenshot("s3_siege_" + step);
+				}
 			}
 			System.out.println("SIEGE end");
 		}
