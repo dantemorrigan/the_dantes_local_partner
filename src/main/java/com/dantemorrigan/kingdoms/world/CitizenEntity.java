@@ -70,6 +70,11 @@ public class CitizenEntity extends PathfinderMob implements RangedAttackMob, Mer
 	public float weight = 1f;
 	/** Caravan this merchant walks with (0: a market vendor). */
 	public int caravanId;
+	/** Where a villager sleeps and where he works (set when he is brought to life). */
+	public Settlement.Building home, work;
+	/** A garrison soldier who stands in the ranks of a barracks yard. */
+	public boolean muster;
+	public int musterSlot = -1;
 	/** The officer who leads a squad, and the sapper who carries the dynamite. */
 	public boolean commander, sapper;
 	/** A work site given directly (a road front): builders go there instead of a building. */
@@ -133,13 +138,14 @@ public class CitizenEntity extends PathfinderMob implements RangedAttackMob, Mer
 			}
 		});
 		this.goalSelector.addGoal(3, new PostGoal(this));
+		this.goalSelector.addGoal(4, new RoutineGoal(this));
 		this.goalSelector.addGoal(3, new BuildGoal(this));
 		this.goalSelector.addGoal(4, new PatrolGoal(this));
 		this.goalSelector.addGoal(5, new MoveTowardsRestrictionGoal(this, 0.9));
 		this.goalSelector.addGoal(6, new WaterAvoidingRandomStrollGoal(this, 0.7) {
 			@Override
 			public boolean canUse() {
-				return !(role() == SOLDIER && (armyId != 0 || hasPost)) && super.canUse();
+				return !(role() == SOLDIER && (armyId != 0 || hasPost)) && !(role() == PEASANT && (work != null || home != null)) && super.canUse();
 			}
 		});
 		this.goalSelector.addGoal(7, new LookAtPlayerGoal(this, Player.class, 8f));
@@ -476,6 +482,102 @@ public class CitizenEntity extends PathfinderMob implements RangedAttackMob, Mer
 				mob.performRangedAttack(t, 1f);
 				cooldown = 30 + mob.random.nextInt(15);
 			}
+		}
+	}
+
+	static int phaseOf(long t) {
+		t = Math.floorMod(t, 24000);
+		return t >= 23000 || t < 500 ? 0 : t < 11500 ? 1 : t < 13500 ? 2 : 3;
+	}
+
+	static boolean workplace(com.dantemorrigan.kingdoms.sim.BuildingType t) {
+		return switch (t) {
+			case FARM, LUMBER_CAMP, QUARRY, MINE, SMITHY, MARKET, WINDMILL, SAWMILL, FOUNDRY, WORKSHOP, FACTORY, LIBRARY, UNIVERSITY, TEMPLE, STATION -> true;
+			default -> false;
+		};
+	}
+
+	static ItemStack toolFor(com.dantemorrigan.kingdoms.sim.BuildingType t) {
+		return new ItemStack(switch (t) {
+			case FARM -> Items.IRON_HOE;
+			case LUMBER_CAMP, SAWMILL, SMITHY -> Items.IRON_AXE;
+			case QUARRY, MINE, FACTORY -> Items.IRON_PICKAXE;
+			case MARKET -> Items.EMERALD;
+			case WINDMILL -> Items.WHEAT;
+			case FOUNDRY -> Items.IRON_INGOT;
+			case WORKSHOP -> Items.SHEARS;
+			case LIBRARY, UNIVERSITY, TEMPLE -> Items.BOOK;
+			default -> Items.COMPASS;
+		});
+	}
+
+	/**
+	 * A villager's day: at dawn he walks to his workplace, works there with his tool through the day (moving about the
+	 * site, swinging), in the evening strolls the streets, and at night goes home into his house.
+	 */
+	static final class RoutineGoal extends Goal {
+		private final CitizenEntity mob;
+		private int wait, phase = -1;
+
+		RoutineGoal(CitizenEntity mob) {
+			this.mob = mob;
+			this.setFlags(EnumSet.of(Flag.MOVE, Flag.LOOK));
+		}
+
+		@Override
+		public boolean canUse() {
+			return mob.role() == PEASANT && (mob.work != null || mob.home != null) && mob.random.nextInt(6) == 0;
+		}
+
+		@Override
+		public boolean canContinueToUse() {
+			return mob.role() == PEASANT && (wait > 0 || !mob.getNavigation().isDone());
+		}
+
+		@Override
+		public void start() {
+			Realm r = KingdomsMod.realm();
+			Settlement s = r == null ? null : r.settlements.get(mob.settlement);
+			if (s == null) return;
+			int ph = phaseOf(mob.level().getOverworldClockTime());
+			if (ph != phase) {
+				phase = ph;
+				boolean working = ph == 1 && mob.work != null;
+				mob.setItemSlot(EquipmentSlot.MAINHAND, working ? toolFor(mob.work.type) : ItemStack.EMPTY);
+			}
+			int[] p = null;
+			if ((ph == 0 || ph == 1) && mob.work != null) {
+				int lx = 2 + mob.random.nextInt(8), lz = 2 + mob.random.nextInt(8);
+				p = Constructor.worldPoint(s, mob.work, lx, lz);
+			} else if (ph == 3 && mob.home != null) {
+				p = Constructor.worldPoint(s, mob.home, 4 + mob.random.nextInt(3), 3 + mob.random.nextInt(3));
+			} else {
+				// stroll: a street corner of a random building (or the middle of town)
+				List<Settlement.Building> bs = new java.util.ArrayList<>();
+				for (Settlement.Building b : s.buildings) if (b.done() && !b.ruined && b.type != com.dantemorrigan.kingdoms.sim.BuildingType.WALL_TOWER && b.type != com.dantemorrigan.kingdoms.sim.BuildingType.GATE) bs.add(b);
+				if (bs.isEmpty()) p = new int[]{s.x + mob.random.nextInt(9) - 4, s.z + mob.random.nextInt(9) - 4};
+				else {
+					Settlement.Building b = bs.get(mob.random.nextInt(bs.size()));
+					p = Constructor.worldPoint(s, b, mob.random.nextBoolean() ? 0 : 11, mob.random.nextInt(12));
+				}
+			}
+			if (!mob.level().hasChunkAt(new BlockPos(p[0], 64, p[1]))) return;
+			int y = mob.level().getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, p[0], p[1]);
+			mob.getNavigation().moveTo(p[0] + 0.5, y, p[1] + 0.5, ph == 0 ? 1.0 : 0.85);
+			wait = ph == 1 ? 80 + mob.random.nextInt(120) : ph == 3 ? 200 + mob.random.nextInt(200) : 40 + mob.random.nextInt(80);
+		}
+
+		@Override
+		public void tick() {
+			if (mob.getNavigation().isDone()) {
+				wait--;
+				if (phase == 1 && mob.work != null && wait % 14 == 0) mob.swing(InteractionHand.MAIN_HAND);
+			}
+		}
+
+		@Override
+		public void stop() {
+			wait = 0;
 		}
 	}
 

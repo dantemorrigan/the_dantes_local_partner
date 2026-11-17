@@ -743,7 +743,14 @@ public final class KingdomAI {
 			Settlement c = r.capitalOf(k);
 			if (!k.wars.isEmpty()) {
 				if (attack < 1 + k.era / 2 && k.soldiers >= 6 && c != null) {
-					raiseArmy(r, k, r.cellX(c.x) + 0.5f, r.cellZ(c.z) + 0.5f, k.soldiers * 0.65f);
+					int[] yard = musterPoint(r, k);
+					Army ar = raiseArmy(r, k, yard == null ? r.cellX(c.x) + 0.5f : (yard[0] - r.originX) / (float) Realm.CELL, yard == null ? r.cellZ(c.z) + 0.5f : (yard[1] - r.originZ) / (float) Realm.CELL, k.soldiers * 0.65f);
+					if (ar != null && yard != null) {
+						ar.hasStart = true;
+						ar.mustering = true;
+						ar.startX = yard[0];
+						ar.startZ = yard[1];
+					}
 				}
 				if (defence < 1 && k.soldiers >= 4) {
 					Army threat = threat(r, k);
@@ -910,6 +917,18 @@ public final class KingdomAI {
 			if (m >= d - 1e-4f && onPath && a.pi < a.path.length - 1) a.pi++;
 			else break;
 		}
+	}
+
+	/** Where armies form up: the yard of a finished barracks (the capital's first), or null. */
+	static int[] musterPoint(Realm r, Kingdom k) {
+		List<Settlement> towns = new ArrayList<>(r.settlementsOf(k.id));
+		towns.sort((p, q) -> Boolean.compare(q.capital, p.capital));
+		for (Settlement s : towns) {
+			for (Settlement.Building b : s.buildings) {
+				if (b.type == BuildingType.BARRACKS && b.done() && !b.ruined) return s.worldPoint(b, 5, 8);
+			}
+		}
+		return null;
 	}
 
 	/** An enemy army close to one of this kingdom's towns. */

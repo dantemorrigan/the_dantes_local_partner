@@ -103,6 +103,12 @@ public final class Constructor {
 		};
 	}
 
+	/** World block position of a plot-local coordinate of a building (the plot is turned toward its town centre). */
+	static int[] worldPoint(Settlement s, Settlement.Building b, int lx, int lz) {
+		int[] t = rotate(lx, lz, rotation(s, b));
+		return new int[]{b.px + t[0], b.pz + t[1]};
+	}
+
 	static boolean loaded(ServerLevel level, Settlement.Building b) {
 		int x1 = b.px >> 4, z1 = b.pz >> 4, x2 = (b.px + Settlement.PLOT) >> 4, z2 = (b.pz + Settlement.PLOT) >> 4;
 		for (int cx = x1; cx <= x2; cx++) for (int cz = z1; cz <= z2; cz++) if (!level.getChunkSource().hasChunk(cx, cz)) return false;

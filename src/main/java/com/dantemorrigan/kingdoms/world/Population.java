@@ -165,13 +165,54 @@ public final class Population {
 		int peasants = Math.min(9, 1 + (int) (share / 8) + done / 4);
 		if (s.wall > 0 && s.wallProgress < 1f) going += 2;
 		int builders = going == 0 ? 0 : Math.min(5, 1 + going / 2 + (s.capital ? 1 : 0));
-		int soldiers = Math.min(7, (int) ((k.soldiers + KingdomAI.armySoldiers(realm, k) * 0.2f) / towns / 3) + (s.count(BuildingType.BARRACKS) > 0 ? 1 : 0));
+		int barracks = 0;
+		for (Settlement.Building bd : s.buildings) if (bd.type == BuildingType.BARRACKS && bd.done() && !bd.ruined) barracks++;
+		int soldiers = Math.min(2 + barracks * 12, (int) ((k.soldiers + KingdomAI.armySoldiers(realm, k) * 0.2f) / towns / 2.5f) + (barracks > 0 ? 4 : 0));
 		boolean keep = false;
 		for (Settlement.Building b : s.buildings) if (b.type == BuildingType.KEEP && b.progress > 0.6f) keep = true;
 		int king = s.capital && keep ? 1 : 0;
 		boolean market = false;
 		for (Settlement.Building b : s.buildings) if (b.type == BuildingType.MARKET && b.done() && !b.ruined) market = true;
 		return new int[]{peasants, builders, soldiers, king, market ? 1 : 0};
+	}
+
+	/** A garrison soldier takes a place in the ranks of a barracks yard, if one is free; the rest patrol the streets. */
+	static void musterSlot(ServerLevel level, Settlement s, CitizenEntity c, List<CitizenEntity> peers) {
+		List<Settlement.Building> bars = new ArrayList<>();
+		for (Settlement.Building b : s.buildings) if (b.type == BuildingType.BARRACKS && b.done() && !b.ruined && b.y != Integer.MIN_VALUE) bars.add(b);
+		if (bars.isEmpty()) return;
+		java.util.Set<Integer> used = new java.util.HashSet<>();
+		for (CitizenEntity p : peers) if (p.muster && p.isAlive()) used.add(p.musterSlot);
+		for (int slot = 0; slot < bars.size() * Settlement.MUSTER.length; slot++) {
+			if (used.contains(slot)) continue;
+			Settlement.Building b = bars.get(slot / Settlement.MUSTER.length);
+			int[] m = Settlement.MUSTER[slot % Settlement.MUSTER.length];
+			int[] w = s.worldPoint(b, m[0], m[1]), ahead = s.worldPoint(b, m[0], m[1] - 1);
+			float yaw = (float) Math.toDegrees(Math.atan2(-(ahead[0] - w[0]), ahead[1] - w[1])); // facing the hall
+			if (!level.getChunkSource().hasChunk(w[0] >> 4, w[1] >> 4)) return;
+			double y = b.y + 1;
+			c.muster = true;
+			c.musterSlot = slot;
+			c.setPost(w[0] + 0.5, y, w[1] + 0.5, yaw);
+			c.snapTo(w[0] + 0.5, y, w[1] + 0.5, yaw, 0f);
+			return;
+		}
+	}
+
+	/** Every villager sleeps in a house and works somewhere; the least-used house and workplace go first. */
+	static void assign(Settlement s, CitizenEntity c, List<CitizenEntity> peers) {
+		java.util.Map<Settlement.Building, Integer> homes = new java.util.IdentityHashMap<>(), works = new java.util.IdentityHashMap<>();
+		for (Settlement.Building b : s.buildings) {
+			if (!b.done() || b.ruined) continue;
+			if (b.type == BuildingType.HOUSE) homes.put(b, 0);
+			else if (CitizenEntity.workplace(b.type)) works.put(b, 0);
+		}
+		for (CitizenEntity p : peers) {
+			if (p.home != null && homes.containsKey(p.home)) homes.merge(p.home, 1, Integer::sum);
+			if (p.work != null && works.containsKey(p.work)) works.merge(p.work, 1, Integer::sum);
+		}
+		c.home = homes.entrySet().stream().min(java.util.Map.Entry.comparingByValue()).map(java.util.Map.Entry::getKey).orElse(null);
+		c.work = works.entrySet().stream().min(java.util.Map.Entry.comparingByValue()).map(java.util.Map.Entry::getKey).orElse(null);
 	}
 
 	static CitizenEntity spawn(ServerLevel level, Kingdom k, Settlement s, int role) {
@@ -181,8 +222,21 @@ public final class Population {
 		if (c == null) return null;
 		c.snapTo(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5, level.getRandom().nextFloat() * 360f, 0f);
 		c.setup(k, s, role);
+		if (role == CitizenEntity.PEASANT) {
+			assign(s, c, TOWNS.getOrDefault(s.id, List.of()));
+			c.setItemSlot(net.minecraft.world.entity.EquipmentSlot.MAINHAND, net.minecraft.world.item.ItemStack.EMPTY);
+			// he starts where he would be at this hour: at work by day, at home at night
+			Settlement.Building at = CitizenEntity.phaseOf(level.getOverworldClockTime()) == 3 ? c.home : c.work;
+			if (at != null) {
+				int[] p = Constructor.worldPoint(s, at, 4 + level.getRandom().nextInt(4), 3 + level.getRandom().nextInt(4));
+				if (level.getChunkSource().hasChunk(p[0] >> 4, p[1] >> 4)) c.snapTo(p[0] + 0.5, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, p[0], p[1]), p[1] + 0.5, c.getYRot(), 0f);
+			}
+		}
 		if (role == CitizenEntity.MERCHANT) c.stayAt(pos, 7);
-		if (role == CitizenEntity.SOLDIER && k.era >= 2 && level.getRandom().nextInt(3) == 0) c.makeArcher();
+		if (role == CitizenEntity.SOLDIER) {
+			if (k.era >= 2 && level.getRandom().nextInt(3) == 0) c.makeArcher();
+			musterSlot(level, s, c, TOWNS.getOrDefault(s.id, List.of()));
+		}
 		level.addFreshEntity(c);
 		return c;
 	}

@@ -40,6 +40,8 @@ final class Squad {
 	int breachCol = -1;
 	final List<int[]> bridge = new ArrayList<>();
 	int enemy = -1;
+	long musterUntil;
+	boolean started;
 
 	Squad(int armyId) {
 		this.armyId = armyId;
@@ -69,10 +71,31 @@ final class Squad {
 	void step(ServerLevel level, Realm r, Army a, Kingdom k, List<CitizenEntity> men) {
 		if (men.isEmpty()) return;
 		long now = level.getGameTime();
+		if (!started) {
+			started = true;
+			if (a.mustering) musterUntil = now + 20 * 20; // the ranks stand in the yard a while before marching out
+		}
 		if (commander == null || !commander.isAlive() || commander.isRemoved() || !men.contains(commander)) promote(men, k);
 		a.x = (float) ((commander.getX() - r.originX) / Realm.CELL);
 		a.z = (float) ((commander.getZ() - r.originZ) / Realm.CELL);
 
+		if (now < musterUntil) {
+			// formed up in the yard: ranks facing the same way, the commander in front
+			double dx = commander.getX() - men.stream().filter(m -> m != commander).mapToDouble(CitizenEntity::getX).average().orElse(commander.getX());
+			double dz = commander.getZ() - men.stream().filter(m -> m != commander).mapToDouble(CitizenEntity::getZ).average().orElse(commander.getZ() - 1);
+			double l = Math.hypot(dx, dz);
+			if (l > 0.1) {
+				hx = dx / l;
+				hz = dz / l;
+			}
+			for (CitizenEntity m : men) if (m.getTarget() == null) {
+				m.getNavigation().stop();
+				m.setSprinting(false);
+				face(m, hx, hz);
+			}
+			return;
+		}
+		a.mustering = false;
 		// what are we doing: besieging an enemy town, or on the road?
 		Settlement town = null;
 		boolean sieging = false;

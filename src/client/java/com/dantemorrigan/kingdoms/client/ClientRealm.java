@@ -90,7 +90,7 @@ public final class ClientRealm {
 
 	public static final List<RView> roads = new ArrayList<>();
 
-	public record TView(int id, int kingdom, int[] name, int x, int z, boolean capital, int[] types, int done, int building, boolean ruin, int wall, float wallp) {
+	public record TView(int id, int kingdom, int[] name, int x, int z, boolean capital, int[] types, int done, int building, boolean ruin, int wall, float wallp, int wallR) {
 		public Component title() {
 			return Names.component(name);
 		}
@@ -289,7 +289,7 @@ public final class ClientRealm {
 			if (!(t instanceof CompoundTag c)) continue;
 			towns.add(new TView(c.getIntOr("id", 0), c.getIntOr("k", 0), c.getIntArray("name").orElse(new int[]{0, 40}),
 					c.getIntOr("x", 0), c.getIntOr("z", 0), c.getBooleanOr("cap", false), c.getIntArray("types").orElse(new int[0]),
-					c.getIntOr("done", 0), c.getIntOr("building", 0), c.getBooleanOr("ruin", false), c.getIntOr("wall", 0), c.getFloatOr("wallp", 0)));
+					c.getIntOr("done", 0), c.getIntOr("building", 0), c.getBooleanOr("ruin", false), c.getIntOr("wall", 0), c.getFloatOr("wallp", 0), c.getIntOr("wallr", 56)));
 		}
 		roads.clear();
 		for (Tag t : d.getListOrEmpty("roads")) {

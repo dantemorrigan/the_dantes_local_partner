@@ -301,9 +301,9 @@ public final class MapScreen extends Screen {
 	/** A town wall: a square ring of the kingdom's dark colour, with a dot for each tower. */
 	private void walls(GuiGraphicsExtractor g) {
 		if (zoom < 3.5f) return;
-		float half = com.dantemorrigan.kingdoms.sim.Settlement.WALL_R / (float) Realm.CELL;
 		for (ClientRealm.TView t : ClientRealm.towns) {
 			if (t.wall() == 0 || t.wallp() <= 0) continue;
+			float half = t.wallR() / (float) Realm.CELL;
 			float cxs = ClientRealm.cellX(t.x()), czs = ClientRealm.cellZ(t.z());
 			int x1 = (int) sx(cxs - half), y1 = (int) sy(czs - half), x2 = (int) sx(cxs + half), y2 = (int) sy(czs + half);
 			if (x2 < mapX1 || x1 > mapX2 || y2 < mapY1 || y1 > mapY2) continue;

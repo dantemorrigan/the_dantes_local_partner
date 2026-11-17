@@ -108,6 +108,23 @@ public final class Settlement {
 		return new int[]{k, k - (m - n - t)};
 	}
 
+	/** World position of a plot-local point of a building (plots are turned so their front faces the town centre). */
+	public int[] worldPoint(Building b, int lx, int lz) {
+		int dx = x - (b.px + PLOT / 2), dz = z - (b.pz + PLOT / 2);
+		int rot = Math.abs(dx) < 3 && Math.abs(dz) < 3 ? 0 : Math.abs(dz) >= Math.abs(dx) ? (dz > 0 ? 2 : 0) : (dx > 0 ? 1 : 3);
+		int m = PLOT - 1;
+		int[] t = switch (rot) {
+			case 1 -> new int[]{m - lz, lx};
+			case 2 -> new int[]{m - lx, m - lz};
+			case 3 -> new int[]{lz, m - lx};
+			default -> new int[]{lx, lz};
+		};
+		return new int[]{b.px + t[0], b.pz + t[1]};
+	}
+
+	/** The barracks yard: plot-local standing places for a rank of soldiers (three ranks of four). */
+	public static final int[][] MUSTER = {{2, 7}, {4, 7}, {6, 7}, {8, 7}, {3, 8}, {5, 8}, {7, 8}, {9, 8}, {2, 9}, {4, 9}, {6, 9}, {8, 9}};
+
 	public int count(BuildingType type) {
 		int c = 0;
 		for (Building b : buildings) if (b.type == type) c++;

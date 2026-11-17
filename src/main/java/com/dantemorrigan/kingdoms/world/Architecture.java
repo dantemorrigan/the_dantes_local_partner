@@ -247,20 +247,29 @@ final class Architecture {
 		bp.flag(1, 1, 1, cloth, true);
 	}
 
+	/** A hall in front and a fenced drill yard behind it where the garrison stands in ranks (plot z 6..10). */
 	static void barracks(Blueprint bp, Structures.Palette p, int era, BlockState cloth) {
 		int floors = era >= 3 ? 3 : era >= 2 ? 2 : 1;
-		int roofY = body(bp, p, era, 1, 2, 10, 9, floors, false);
-		bp.door(5, 1, 2, p.door(), Direction.NORTH);
-		bp.door(6, 1, 2, p.door(), Direction.NORTH);
+		int roofY = body(bp, p, era, 1, 1, 10, 5, floors, false);
+		bp.door(5, 1, 5, p.door(), Direction.SOUTH); // the way out to the yard
 		if (era >= 2) { // crenellated roof and corner turrets
-			bp.fill(1, roofY, 2, 10, roofY, 9, p.floor());
-			bp.battlements(1, 2, 10, 9, roofY + 1, mats(era).base());
-			for (int[] c : new int[][]{{1, 2}, {10, 2}, {1, 9}, {10, 9}}) bp.fill(c[0], roofY + 1, c[1], c[0], roofY + 3, c[1], mats(era).base());
-		} else bp.roof(0, 1, 11, 10, roofY, p.roof(), p.roofTop());
-		bp.set(2, 1, 8, Blocks.HAY_BLOCK).set(2, 2, 8, Blocks.TARGET).set(9, 1, 8, Blocks.CHEST).set(5, 1, 8, Blocks.SMITHING_TABLE);
-		bp.set(4, 1, 8, Blocks.RED_BED).set(7, 1, 8, Blocks.WHITE_BED);
-		bp.flag(1, roofY + (era >= 2 ? 4 : 2), 3, cloth, true);
-		bp.flag(10, roofY + (era >= 2 ? 4 : 2), 8, cloth, false);
+			bp.fill(1, roofY, 1, 10, roofY, 5, p.floor());
+			bp.battlements(1, 1, 10, 5, roofY + 1, mats(era).base());
+			for (int[] c : new int[][]{{1, 1}, {10, 1}, {1, 5}, {10, 5}}) bp.fill(c[0], roofY + 1, c[1], c[0], roofY + 3, c[1], mats(era).base());
+		} else bp.roof(0, 0, 11, 6, roofY, p.roof(), p.roofTop());
+		bp.set(2, 1, 2, Blocks.HAY_BLOCK).set(2, 2, 2, Blocks.TARGET).set(9, 1, 2, Blocks.CHEST).set(5, 1, 2, Blocks.SMITHING_TABLE);
+		bp.set(3, 1, 4, Blocks.RED_BED).set(8, 1, 4, Blocks.WHITE_BED);
+		// the yard
+		bp.hollow(0, 1, 6, 11, 5, 11);
+		BlockState ground = era >= 2 ? b(Blocks.STONE_BRICKS) : b(Blocks.GRAVEL);
+		bp.fill(1, 0, 6, 10, 0, 10, ground);
+		BlockState fence = era >= 2 ? b(Blocks.STONE_BRICK_WALL) : b(Blocks.OAK_FENCE);
+		for (int z = 6; z <= 10; z++) bp.set(1, 1, z, fence).set(10, 1, z, fence);
+		for (int x = 1; x <= 10; x++) if (x != 5 && x != 6) bp.set(x, 1, 10, fence);
+		bp.set(2, 1, 6, Blocks.HAY_BLOCK).set(2, 2, 6, Blocks.CARVED_PUMPKIN).set(9, 1, 6, Blocks.HAY_BLOCK).set(9, 2, 6, Blocks.CARVED_PUMPKIN);
+		bp.set(1, 2, 10, Blocks.LANTERN).set(10, 2, 10, Blocks.LANTERN);
+		bp.flag(0, 1, 8, cloth, true);
+		bp.flag(11, 1, 8, cloth, false);
 	}
 
 	static void temple(Blueprint bp, Structures.Palette p, int era) {

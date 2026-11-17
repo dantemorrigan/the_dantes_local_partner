@@ -17,6 +17,9 @@ public final class Army {
 	public int mission;
 	/** Set by the world each tick while the army has living soldiers in the world: real fighting replaces the arithmetic. */
 	public transient boolean observed;
+	/** Raised at a barracks: the block where the ranks form, and whether they stand a while before marching out. */
+	public transient boolean hasStart, mustering;
+	public transient int startX, startZ;
 	/** Route over land (cell indices) and the next waypoint on it. */
 	public transient int[] path;
 	public transient int pi;

@@ -237,6 +237,7 @@ public final class Sync {
 			t.putInt("building", building);
 			t.putBoolean("ruin", s.kingdom == 0);
 			t.putInt("wall", s.wall);
+			t.putInt("wallr", s.wallR);
 			t.putFloat("wallp", s.wallProgress);
 			ss.add(t);
 		}

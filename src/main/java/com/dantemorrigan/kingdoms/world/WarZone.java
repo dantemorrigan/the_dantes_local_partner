@@ -81,7 +81,8 @@ public final class WarZone {
 		for (Army a : new ArrayList<>(r.armies.values())) {
 			Kingdom k = r.kingdoms.get(a.kingdom);
 			if (k == null || !k.alive) continue;
-			int x = bx(r, a.x), z = bz(r, a.z);
+			int x = a.hasStart ? a.startX : bx(r, a.x), z = a.hasStart ? a.startZ : bz(r, a.z);
+			if (!a.observed && !a.mustering) { x = bx(r, a.x); z = bz(r, a.z); }
 			List<CitizenEntity> squad = SQUADS.computeIfAbsent(a.id, q -> new ArrayList<>());
 			squad.removeIf(c -> c.isRemoved() || !c.isAlive());
 			if (!Constructor.near(players, x, z, RANGE)) {
