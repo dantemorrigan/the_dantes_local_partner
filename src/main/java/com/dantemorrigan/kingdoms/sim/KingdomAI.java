@@ -100,7 +100,10 @@ public final class KingdomAI {
 
 	/** The world does not begin at the dawn of time: the kingdoms already have a history when the first player looks. */
 	public static void history(Realm r, int days) {
-		for (int i = 0; i < days; i++) day(r);
+		for (int i = 0; i < days; i++) {
+			day(r);
+			live(r, 1f); // a whole day of work, marching and trading in one step
+		}
 	}
 
 	// ------------------------------------------------------------------ the day

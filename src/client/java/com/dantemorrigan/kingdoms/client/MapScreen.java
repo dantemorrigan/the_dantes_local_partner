@@ -59,6 +59,17 @@ public final class MapScreen extends Screen {
 	static boolean observing;
 
 	private final List<Btn> buttons = new ArrayList<>();
+	/** Everything drawn over the map: the map underneath must not react to the mouse there. */
+	private final List<int[]> uiRects = new ArrayList<>();
+
+	private void ui(int x, int y, int w, int h) {
+		uiRects.add(new int[]{x, y, w, h});
+	}
+
+	private boolean overUi(double mx, double my) {
+		for (int[] r : uiRects) if (Ui2.inside(mx, my, r[0], r[1], r[2], r[3])) return true;
+		return false;
+	}
 	private String picking; // "war" / "peace" / "ally": waiting for a click on the other kingdom
 	private boolean dragging, moved, draggingMini;
 	private double pressX, pressY;
@@ -153,6 +164,7 @@ public final class MapScreen extends Screen {
 	@Override
 	public void extractRenderState(GuiGraphicsExtractor g, int mx, int my, float delta) {
 		buttons.clear();
+		uiRects.clear();
 		tip = null;
 		narrow = width < 400;
 		mapX1 = 0;
@@ -433,6 +445,7 @@ public final class MapScreen extends Screen {
 	private void topRight(GuiGraphicsExtractor g, int mx, int my) {
 		int w = topRightWidth();
 		int x0 = width - w - 3;
+		ui(x0, 2, w, 22);
 		frame(g, "panel", x0, 2, w, 22);
 		int year = (int) (ClientRealm.day / Realm.DAYS_PER_YEAR) + 1;
 		int season = (int) (ClientRealm.day % Realm.DAYS_PER_YEAR) * 4 / Realm.DAYS_PER_YEAR;
@@ -457,6 +470,7 @@ public final class MapScreen extends Screen {
 		int w = width - topRightWidth() - 12;
 		if (w < 90) return;
 		w = Math.min(w, 7 * 52 + 10);
+		ui(3, 2, w, 22);
 		frame(g, "panel", 3, 2, w, 22);
 		if (k == null) {
 			icon(g, "crown", 8, 5, 16);
@@ -486,6 +500,7 @@ public final class MapScreen extends Screen {
 		int visible = Math.max(1, Math.min(alive.size(), (mapY2 - y0 - 14) / rowH));
 		listScroll = Math.max(0, Math.min(listScroll, Math.max(0, alive.size() - visible)));
 		int h = Math.max(1, visible) * rowH + 6;
+		ui(3, y0 - 2, w - 3, h + (alive.isEmpty() ? 30 : 0));
 		g.fill(3, y0 - 2, w, y0 - 2 + h + (alive.isEmpty() ? 30 : 0), 0xAA0B1020);
 		g.outline(3, y0 - 2, w - 3, h + (alive.isEmpty() ? 30 : 0), 0x88B08A3E);
 		for (int i = listScroll; i < alive.size() && i - listScroll < visible; i++) {
@@ -528,6 +543,7 @@ public final class MapScreen extends Screen {
 	private void commandBar(GuiGraphicsExtractor g, int mx, int my) {
 		int y0 = mapY2;
 		buttons.add(new Btn(0, y0, width, BAR, () -> {})); // the bar swallows clicks (registered first, so its own buttons win)
+		ui(0, y0, width, BAR);
 		frame(g, "bar", 0, y0, width, BAR);
 		// --- minimap
 		int ms = BAR - 14, mxp = 7, myp = y0 + 7;
@@ -772,15 +788,16 @@ public final class MapScreen extends Screen {
 			sold += kv.soldiers + kv.army;
 		}
 		icon(g, "crown", x, y, 32);
-		Ui2.fit(g, font, Component.translatable("kingdoms.map.realm"), x + 38, y, 120, GOLD);
+		Ui2.fit(g, font, Component.translatable("kingdoms.map.realm"), x + 38, y, Math.max(20, w - 40), GOLD);
 		String[][] st = {{"crown", alive + ""}, {"town", towns + ""}, {"people", (int) pop + ""}, {"soldier", (int) sold + ""}, {"battle", wars / 2 + ""}, {"caravan", ClientRealm.caravans.size() + ""}};
+		int colW = Math.max(30, Math.min(56, (w - 44) / 3));
 		for (int i = 0; i < st.length; i++) {
-			int cx2 = x + 38 + (i % 3) * 56, cy2 = y + 12 + (i / 3) * 13;
+			int cx2 = x + 38 + (i % 3) * colW, cy2 = y + 12 + (i / 3) * 13;
 			icon(g, st[i][0], cx2, cy2, 10);
-			Ui2.fit(g, font, Component.literal(st[i][1]), cx2 + 13, cy2 + 1, 40, TEXT, 0.9f);
+			Ui2.fit(g, font, Component.literal(st[i][1]), cx2 + 13, cy2 + 1, colW - 15, TEXT, 0.9f);
 		}
-		int hx = x + 38 + 3 * 56 + 8;
-		if (x + w - hx > 80) Ui2.wrap(g, font, Component.translatable(ClientRealm.god ? "kingdoms.map.hint_god" : "kingdoms.map.hint"), hx, y, x + w - hx, MUTED, 0.7f);
+		int hx = x + 38 + 3 * colW + 8;
+		if (x + w - hx > 90) Ui2.wrap(g, font, Component.translatable(ClientRealm.god ? "kingdoms.map.hint_god" : "kingdoms.map.hint"), hx, y, x + w - hx, MUTED, 0.7f);
 	}
 
 	private void townInfo(GuiGraphicsExtractor g, ClientRealm.TView t, int x, int y, int w, int h) {
@@ -824,6 +841,7 @@ public final class MapScreen extends Screen {
 			List<FormattedCharSequence> lines = font.split(e.text(), (int) ((w - 8) / 0.72f));
 			int h = (int) (lines.size() * 9 * 0.72f) + 4;
 			if (y + h > mapY2 - 4) break;
+			ui(x, y, w, h);
 			boolean hov = Ui2.inside(mx, my, x, y, w, h);
 			g.fill(x, y, x + w, y + h, hov ? 0xCC2A2416 : 0x9A0B1020);
 			g.fill(x, y, x + 2, y + h, e.level() >= 2 ? GOLD : e.level() == 1 ? 0xFF8FA8D8 : 0xFF666666);
@@ -850,7 +868,7 @@ public final class MapScreen extends Screen {
 	}
 
 	private void hover(GuiGraphicsExtractor g, int mx, int my) {
-		if (!ClientRealm.hasState || mx < mapX1 || mx >= mapX2 || my < mapY1 || my >= mapY2 || dragging) return;
+		if (!ClientRealm.hasState || mx < mapX1 || mx >= mapX2 || my < mapY1 || my >= mapY2 || dragging || overUi(mx, my)) return;
 		float fx = cx(mx), fz = cz(my);
 		int cxi = (int) Math.floor(fx), czi = (int) Math.floor(fz);
 		if (cxi < 0 || czi < 0 || cxi >= ClientRealm.n || czi >= ClientRealm.n) return;
@@ -938,6 +956,7 @@ public final class MapScreen extends Screen {
 				}
 			}
 		}
+		if (overUi(mx, my)) return true; // a panel: the map underneath does not see the click
 		if (mx >= mapX1 && mx < mapX2 && my >= mapY1 && my < mapY2) {
 			if (e.button() == 1) {
 				tool = Tool.SELECT;
@@ -989,7 +1008,7 @@ public final class MapScreen extends Screen {
 			listScroll -= (int) Math.signum(sy);
 			return true;
 		}
-		if (mx >= mapX1 && mx < mapX2) {
+		if (mx >= mapX1 && mx < mapX2 && !overUi(mx, my)) {
 			float bx = cx(mx), bz = cz(my);
 			zoom *= sy > 0 ? 1.18f : 1 / 1.18f;
 			zoom = Math.max(1.2f, Math.min(48f, zoom));
