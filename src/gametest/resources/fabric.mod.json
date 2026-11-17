@@ -10,6 +10,6 @@
     ]
   },
   "depends": {
-    "local_partner": "*"
+    "dantes_kingdoms": "*"
   }
 }

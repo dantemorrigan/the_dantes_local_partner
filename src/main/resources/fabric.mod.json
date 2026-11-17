@@ -1,15 +1,16 @@
 {
 	"schemaVersion": 1,
-	"id": "local_partner",
+	"id": "dantes_kingdoms",
 	"version": "${version}",
-	"name": "The Dante's Local Partner",
-	"description": "A co-op companion bot: follows you, helps, takes orders from the command wheel (C) and plays Minecraft on its own.",
+	"name": "The Dante's Kingdoms",
+	"description": "Living kingdoms that build, grow through the ages, trade, rebel and wage war on their own - watch and rule them as a god from a strategy map (M). Includes the Local Partner companion (C/G).",
 	"authors": ["dantemorrigan"],
 	"license": "CC0-1.0",
+	"icon": "assets/kingdoms/icon.png",
 	"environment": "*",
 	"entrypoints": {
-		"main": ["com.dantemorrigan.partner.LocalPartner"],
-		"client": ["com.dantemorrigan.partner.client.LocalPartnerClient"]
+		"main": ["com.dantemorrigan.partner.LocalPartner", "com.dantemorrigan.kingdoms.KingdomsMod"],
+		"client": ["com.dantemorrigan.partner.client.LocalPartnerClient", "com.dantemorrigan.kingdoms.client.KingdomsClient"]
 	},
 	"depends": {
 		"fabricloader": ">=0.20.1",

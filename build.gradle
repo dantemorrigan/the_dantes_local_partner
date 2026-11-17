@@ -9,7 +9,7 @@ loom {
 	splitEnvironmentSourceSets()
 
 	mods {
-		"local_partner" {
+		"dantes_kingdoms" {
 			sourceSet sourceSets.main
 			sourceSet sourceSets.client
 		}
