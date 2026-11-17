@@ -70,6 +70,9 @@ public class CitizenEntity extends PathfinderMob implements RangedAttackMob, Mer
 	public float weight = 1f;
 	/** Caravan this merchant walks with (0: a market vendor). */
 	public int caravanId;
+	/** A work site given directly (a road front): builders go there instead of a building. */
+	public boolean hasSite;
+	public int siteX, siteZ;
 	/** A fixed post (a tower top): the soldier stands here and shoots. */
 	public boolean hasPost;
 	public double postX, postY, postZ;
@@ -296,6 +299,12 @@ public class CitizenEntity extends PathfinderMob implements RangedAttackMob, Mer
 		}
 
 		private boolean pick() {
+			if (mob.hasSite) {
+				cx = mob.siteX;
+				cz = mob.siteZ;
+				y = mob.level().getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, cx, cz);
+				return true;
+			}
 			Realm r = KingdomsMod.realm();
 			Settlement s = r == null ? null : r.settlements.get(mob.settlement);
 			if (s == null) return false;
@@ -349,6 +358,12 @@ public class CitizenEntity extends PathfinderMob implements RangedAttackMob, Mer
 		public void stop() {
 			cx = 0;
 		}
+	}
+
+	public void setSite(int x, int z) {
+		this.hasSite = true;
+		this.siteX = x;
+		this.siteZ = z;
 	}
 
 	public void setPost(double x, double y, double z) {
