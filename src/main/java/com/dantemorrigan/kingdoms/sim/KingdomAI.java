@@ -27,11 +27,11 @@ public final class KingdomAI {
 		int c = Realm.N / 2;
 		for (int attempt = 0; attempt < 4000 && placed.size() < START_KINGDOMS; attempt++) {
 			double ang = rnd.nextDouble() * Math.PI * 2;
-			double dist = 6 + rnd.nextDouble() * 52;
+			double dist = 6 + rnd.nextDouble() * 40;
 			int cx = c + (int) Math.round(Math.cos(ang) * dist), cz = c + (int) Math.round(Math.sin(ang) * dist);
 			if (!goodSite(r, cx, cz)) continue;
 			boolean far = true;
-			for (int[] p : placed) if (Math.hypot(p[0] - cx, p[1] - cz) < 24) far = false;
+			for (int[] p : placed) if (Math.hypot(p[0] - cx, p[1] - cz) < 19) far = false;
 			if (!far) continue;
 			placed.add(new int[]{cx, cz});
 			found(r, cx, cz, null);
@@ -205,7 +205,7 @@ public final class KingdomAI {
 		// Soldiers.
 		int barracks = countDone(r, k, BuildingType.BARRACKS);
 		int smithies = countDone(r, k, BuildingType.SMITHY);
-		float want = k.population * (0.11f + 0.24f * k.aggression) * (k.wars.isEmpty() ? 1f : 1.8f);
+		float want = k.population * (0.12f + 0.3f * k.aggression) * (k.wars.isEmpty() ? 1f : 1.8f);
 		float cap = barracks == 0 ? k.population * 0.1f : want;
 		if (k.soldiers + armySoldiers(r, k) < cap && k.food > 5 && k.gold > 2) {
 			float rate = 0.1f + barracks * 0.35f + smithies * 0.1f;
@@ -236,7 +236,7 @@ public final class KingdomAI {
 		k.wood = Math.max(0, Math.min(k.wood, storage));
 		k.stone = Math.max(0, Math.min(k.stone, storage));
 		k.iron = Math.max(0, Math.min(k.iron, storage));
-		k.gold = Math.min(k.gold, storage * 1.5f);
+		k.gold = Math.min(k.gold, storage * 0.7f);
 	}
 
 	static int countDone(Realm r, Kingdom k, BuildingType t) {
@@ -307,9 +307,9 @@ public final class KingdomAI {
 			int active = 0;
 			for (Settlement.Building b : s.buildings) if (!b.done() && !b.ruined && b.type != BuildingType.WALL_TOWER) active++;
 			walls(r, k, s, pace);
-			int slots = (s.capital ? 2 : 1) + k.era / 2 + (k.gold > 250 ? 1 : 0);
+			int slots = (s.capital ? 2 : 1) + k.era / 2 + (k.gold > 250 ? 1 : 0) + (k.gold > 1500 ? 1 : 0);
 			if (active >= slots) continue;
-			int limit = s.capital ? 14 + k.era * 8 : 7 + k.era * 5;
+			int limit = s.capital ? 14 + k.era * 12 : 7 + k.era * 7;
 			int plain = 0;
 			for (Settlement.Building b : s.buildings) if (b.type != BuildingType.WALL_TOWER) plain++;
 			if (plain >= limit) continue;
@@ -427,17 +427,24 @@ public final class KingdomAI {
 		Era era = k.era();
 		int housing = 0;
 		for (Settlement t : r.settlementsOf(k.id)) for (Settlement.Building b : t.buildings) if (!b.ruined) housing += Math.round(b.type.housing * (1f + 0.45f * b.style));
-		if (k.population > housing * 0.85f) return BuildingType.HOUSE;
 		int cap = 2 + era.ordinal() + (s.capital ? 1 : 0);
-		// 1. the scarcest of the five goods, relative to what the realm needs
+		// 0. the basics first: every town needs wood and stone before it can build anything else
+		if (s.count(BuildingType.LUMBER_CAMP) == 0) return BuildingType.LUMBER_CAMP;
+		if (s.count(BuildingType.QUARRY) == 0) return BuildingType.QUARRY;
+		if (k.food < 30 && s.count(BuildingType.FARM) < cap + 2) return BuildingType.FARM;
+		if (k.wood < 40 && s.count(BuildingType.LUMBER_CAMP) < cap) return BuildingType.LUMBER_CAMP;
+		if (k.stone < 25 && s.count(BuildingType.QUARRY) < cap) return BuildingType.QUARRY;
+		if (k.population > housing * 0.85f) return BuildingType.HOUSE;
+		// 1. the scarcest of the goods, relative to what the realm needs
 		float[] ratio = new float[5];
 		for (int t = 0; t < 5; t++) ratio[t] = Trade.stock(k, t) / Math.max(1f, Trade.need(k, t));
-		if (k.food < 30 || ratio[0] < 1.2f * 0.9f) {
+		if (ratio[0] < 1.1f) {
 			if (era.ordinal() >= Era.FEUDAL.ordinal() && s.count(BuildingType.WINDMILL) < s.count(BuildingType.FARM) / 2 && s.count(BuildingType.WINDMILL) < 2) return BuildingType.WINDMILL;
 			if (s.count(BuildingType.FARM) < cap + 2) return BuildingType.FARM;
 		}
 		int worst = 1;
-		for (int t = 1; t < 5; t++) if (ratio[t] < ratio[worst]) worst = t;
+		int lastRes = era.ordinal() >= Era.FEUDAL.ordinal() ? 4 : 2; // no mines or markets before the feudal age
+		for (int t = 1; t <= lastRes; t++) if (ratio[t] < ratio[worst]) worst = t;
 		if (ratio[worst] < 1.0f) {
 			switch (worst) {
 				case 1 -> {
@@ -458,8 +465,6 @@ public final class KingdomAI {
 				}
 			}
 		}
-		if (s.count(BuildingType.LUMBER_CAMP) == 0) return BuildingType.LUMBER_CAMP;
-		if (s.count(BuildingType.QUARRY) == 0) return BuildingType.QUARRY;
 		if (count(r, k, BuildingType.FARM) * 30 < k.population) return BuildingType.FARM;
 		// 2. the things an age is known for
 		List<BuildingType> wish = new ArrayList<>();
@@ -493,7 +498,7 @@ public final class KingdomAI {
 	// ------------------------------------------------------------------ expansion
 
 	static void expand(Realm r, Kingdom k) {
-		int limit = 9 + (int) (k.population * 0.55f) + k.era * 18;
+		int limit = 9 + (int) (k.population * 0.9f) + k.era * 26;
 		if (k.cells >= limit) return;
 		if (r.random.nextFloat() > 0.35f + k.expansion * 0.6f) return;
 		float cost = 1.5f + k.cells * 0.03f;
@@ -543,8 +548,8 @@ public final class KingdomAI {
 			if (r.owner[Realm.idx(x, z)] != k.id || !goodTown(r, x, z, k.id)) continue;
 			float d = 1e9f;
 			for (Settlement s : r.settlements.values()) d = Math.min(d, (float) Math.hypot(r.cellX(s.x) - x, r.cellZ(s.z) - z));
-			if (d < 9) continue;
-			float score = value(r.terrainAt(x, z)) - Math.abs(d - 11) * 0.3f + r.random.nextFloat();
+			if (d < 6.5f) continue;
+			float score = value(r.terrainAt(x, z)) - Math.abs(d - 9) * 0.3f + r.random.nextFloat();
 			if (score > best) {
 				best = score;
 				bx = x;
@@ -605,11 +610,11 @@ public final class KingdomAI {
 		for (int i = 0; i < alive.size(); i++) {
 			for (int j = i + 1; j < alive.size(); j++) {
 				Kingdom a = alive.get(i), b = alive.get(j);
-				boolean border = r.borders(a.id, b.id);
+				boolean border = r.borders(a.id, b.id) || closeTowns(r, a, b);
 				float drift;
 				if (a.wars.contains(b.id)) drift = -0.3f;
 				else if (a.allies.contains(b.id)) drift = 0.25f;
-				else if (border) drift = -0.35f * (a.aggression + b.aggression) + 0.2f * (a.diplomacy + b.diplomacy);
+				else if (border) drift = -0.9f * (a.aggression + b.aggression) + 0.35f * (a.diplomacy + b.diplomacy);
 				else drift = (0 - a.relation(b.id)) * 0.01f + 0.05f * (a.diplomacy + b.diplomacy);
 				int claimsA = claims(r, a.id, b.id), claimsB = claims(r, b.id, a.id);
 				drift -= Math.min(2f, (claimsA + claimsB) * 0.05f);
@@ -634,6 +639,16 @@ public final class KingdomAI {
 				}
 			}
 		}
+	}
+
+	/** Rival towns within a few days' march of each other count as neighbours, even if no border touches yet. */
+	static boolean closeTowns(Realm r, Kingdom a, Kingdom b) {
+		for (Settlement s : r.settlementsOf(a.id)) {
+			for (Settlement t : r.settlementsOf(b.id)) {
+				if (Math.hypot(s.x - t.x, s.z - t.z) / Realm.CELL <= 18) return true;
+			}
+		}
+		return false;
 	}
 
 	static int claims(Realm r, int claimant, int holder) {
