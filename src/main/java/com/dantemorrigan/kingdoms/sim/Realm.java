@@ -34,6 +34,7 @@ public final class Realm {
 	public final Map<Integer, Kingdom> kingdoms = new LinkedHashMap<>();
 	public final Map<Integer, Settlement> settlements = new LinkedHashMap<>();
 	public final Map<Integer, Army> armies = new LinkedHashMap<>();
+	public final Map<Integer, Caravan> caravans = new LinkedHashMap<>();
 	public final List<Chronicle.Entry> chronicle = new ArrayList<>();
 	public int nextId = 1;
 	public long day;
@@ -203,6 +204,9 @@ public final class Realm {
 		ListTag as = new ListTag();
 		for (Army a : armies.values()) as.add(a.save());
 		t.put("armies", as);
+		ListTag cv = new ListTag();
+		for (Caravan c : caravans.values()) cv.add(c.save());
+		t.put("caravans", cv);
 		ListTag cs = new ListTag();
 		for (Chronicle.Entry e : chronicle) cs.add(e.save());
 		t.put("chronicle", cs);
@@ -235,6 +239,10 @@ public final class Realm {
 		for (Tag a : t.getListOrEmpty("armies")) if (a instanceof CompoundTag c) {
 			Army ar = Army.load(c);
 			r.armies.put(ar.id, ar);
+		}
+		for (Tag c : t.getListOrEmpty("caravans")) if (c instanceof CompoundTag ct) {
+			Caravan cv = Caravan.load(ct);
+			r.caravans.put(cv.id, cv);
 		}
 		for (Tag e : t.getListOrEmpty("chronicle")) if (e instanceof CompoundTag c) r.chronicle.add(Chronicle.Entry.load(c));
 		r.chronicleSent = r.chronicle.size();

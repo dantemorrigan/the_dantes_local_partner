@@ -13,6 +13,14 @@ public final class Army {
 	public int target;
 	/** Ticks spent fighting this turn (shown as a battle on the map). */
 	public int fighting;
+	/** 0 attack, 1 border patrol, 2 defence (intercepts an enemy army near own towns). */
+	public int mission;
+	/** Set by the world each tick while the army has living soldiers in the world: real fighting replaces the arithmetic. */
+	public transient boolean observed;
+	/** 0..1: share of the soldiers in the world that stand at the objective (a siege only advances with soldiers there). */
+	public transient float pressure = 1f;
+	/** Soldiers killed in the world since the last simulated day (for the map). */
+	public transient float dead;
 
 	public Army(int id, int kingdom, float x, float z, float soldiers) {
 		this.id = id;
@@ -33,6 +41,7 @@ public final class Army {
 		t.putFloat("s", soldiers);
 		t.putInt("tg", target);
 		t.putInt("f", fighting);
+		t.putInt("m", mission);
 		return t;
 	}
 
@@ -42,6 +51,7 @@ public final class Army {
 		a.tz = t.getFloatOr("tz", a.z);
 		a.target = t.getIntOr("tg", 0);
 		a.fighting = t.getIntOr("f", 0);
+		a.mission = t.getIntOr("m", 0);
 		return a;
 	}
 }

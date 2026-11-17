@@ -3,6 +3,7 @@ package com.dantemorrigan.partner.gametest;
 import com.dantemorrigan.kingdoms.GodPowers;
 import com.dantemorrigan.kingdoms.KingdomsMod;
 import com.dantemorrigan.kingdoms.client.MapScreen;
+import com.dantemorrigan.kingdoms.sim.Army;
 import com.dantemorrigan.kingdoms.sim.Kingdom;
 import com.dantemorrigan.kingdoms.sim.Realm;
 import com.dantemorrigan.kingdoms.sim.Settlement;
@@ -22,7 +23,8 @@ public class KingdomsTest implements FabricClientGameTest {
 	private static String summary() {
 		Realm r = KingdomsMod.realm();
 		if (r == null) return "no realm";
-		StringBuilder b = new StringBuilder("day " + r.day + " towns " + r.settlements.size() + " armies " + r.armies.size());
+		StringBuilder b = new StringBuilder("day " + r.day + " towns " + r.settlements.size() + " armies " + r.armies.size() + " caravans " + r.caravans.size()
+				+ " trade-events " + r.chronicle.stream().filter(e -> e.key().contains("caravan") || e.key().contains("trade_done")).count());
 		for (Kingdom k : r.kingdoms.values()) {
 			b.append("\n  #").append(k.id).append(k.alive ? "" : " (dead)").append(" era ").append(k.era).append(" pop ").append((int) k.population)
 					.append(" cells ").append(k.cells).append(" sold ").append((int) k.soldiers).append(" wars ").append(k.wars)
@@ -112,6 +114,37 @@ public class KingdomsTest implements FabricClientGameTest {
 			ctx.waitTicks(20 * 15);
 			log(sp, "after the war started");
 			ctx.takeScreenshot("k4_map_war");
+
+			// 5b. An army in the flesh: soldiers stand in the world, march and besiege.
+			server.runOnServer(s -> KingdomsMod.realm().speed = 2);
+			int[] ar = null;
+			for (int tries = 0; tries < 12 && ar == null; tries++) {
+				ar = server.computeOnServer(s -> {
+					Realm r = KingdomsMod.realm();
+					for (Army a : r.armies.values()) if (a.soldiers >= 3) return new int[]{Math.round(r.originX + a.x * Realm.CELL), Math.round(r.originZ + a.z * Realm.CELL)};
+					return null;
+				});
+				if (ar == null) ctx.waitTicks(40);
+			}
+			if (ar != null) {
+				ctx.setScreen(() -> null);
+				final int[] fa = ar;
+				server.runCommand("gamemode spectator @p");
+				int gy = server.computeOnServer(s -> s.overworld().getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, fa[0], fa[1]));
+				server.runCommand("tp @p " + (fa[0] - 18) + " " + (gy + 16) + " " + (fa[1] - 18) + " -45 30");
+				ctx.waitTicks(20 * 15);
+				int[] soldiers = server.computeOnServer(s -> {
+					int w = 0, g = 0;
+					for (var e : s.overworld().getAllEntities()) if (e instanceof com.dantemorrigan.kingdoms.world.CitizenEntity c && c.role() == 2) {
+						if (c.armyId != 0) w++;
+						else g++;
+					}
+					return new int[]{w, g};
+				});
+				System.out.println("KINGDOMS soldiers in the world: army=" + soldiers[0] + " garrison=" + soldiers[1]);
+				ctx.takeScreenshot("k6_army");
+				server.runCommand("gamemode creative @p");
+			} else System.out.println("KINGDOMS no army to look at");
 
 			// 6. Russian.
 			ctx.setScreen(() -> null);

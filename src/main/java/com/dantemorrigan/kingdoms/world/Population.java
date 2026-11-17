@@ -42,16 +42,17 @@ public final class Population {
 			}
 			if (!near) continue;
 			int[] want = wanted(realm, k, s);
-			int[] have = new int[4];
+			int[] have = new int[5];
 			for (CitizenEntity c : list) have[c.role()]++;
-			for (int role = 3; role >= 0; role--) {
+			have[CitizenEntity.MERCHANT] = (int) list.stream().filter(c -> c.role() == CitizenEntity.MERCHANT).count();
+			for (int role = 4; role >= 0; role--) {
 				if (have[role] < want[role]) {
 					CitizenEntity c = spawn(level, k, s, role);
 					if (c != null) list.add(c);
 					break; // one per pass: they trickle in
 				}
 				if (have[role] > want[role]) {
-					for (CitizenEntity c : list) if (c.role() == role) {
+					for (CitizenEntity c : list) if (c.role() == role && c.caravanId == 0) {
 						c.discard();
 						break;
 					}
@@ -60,7 +61,7 @@ public final class Population {
 		}
 	}
 
-	/** Peasants, builders, soldiers, king for a town. */
+	/** Peasants, builders, soldiers, king, market vendor for a town. */
 	static int[] wanted(Realm realm, Kingdom k, Settlement s) {
 		int towns = Math.max(1, realm.settlementsOf(k.id).size());
 		float share = k.population / towns;
@@ -76,7 +77,9 @@ public final class Population {
 		boolean keep = false;
 		for (Settlement.Building b : s.buildings) if (b.type == BuildingType.KEEP && b.progress > 0.6f) keep = true;
 		int king = s.capital && keep ? 1 : 0;
-		return new int[]{peasants, builders, soldiers, king};
+		boolean market = false;
+		for (Settlement.Building b : s.buildings) if (b.type == BuildingType.MARKET && b.done() && !b.ruined) market = true;
+		return new int[]{peasants, builders, soldiers, king, market ? 1 : 0};
 	}
 
 	static CitizenEntity spawn(ServerLevel level, Kingdom k, Settlement s, int role) {
@@ -86,6 +89,8 @@ public final class Population {
 		if (c == null) return null;
 		c.snapTo(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5, level.getRandom().nextFloat() * 360f, 0f);
 		c.setup(k, s, role);
+		if (role == CitizenEntity.MERCHANT) c.stayAt(pos, 7);
+		if (role == CitizenEntity.SOLDIER && k.era >= 2 && level.getRandom().nextInt(3) == 0) c.makeArcher();
 		level.addFreshEntity(c);
 		return c;
 	}
@@ -108,6 +113,14 @@ public final class Population {
 		}
 		if (!level.getChunkSource().hasChunk(x >> 4, z >> 4)) return null;
 		int y = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
+		if (role == CitizenEntity.MERCHANT) {
+			for (Settlement.Building b : s.buildings) {
+				if (b.type == BuildingType.MARKET && b.y != Integer.MIN_VALUE && b.placed > 144) {
+					int mx = b.px + 6, mz = b.pz + 6;
+					return new BlockPos(mx, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, mx, mz), mz);
+				}
+			}
+		}
 		if (role == CitizenEntity.KING) {
 			// inside the keep, on the floor
 			for (Settlement.Building b : s.buildings) if (b.type == BuildingType.KEEP && b.y != Integer.MIN_VALUE) return new BlockPos(s.x, b.y + 1, s.z + 1);

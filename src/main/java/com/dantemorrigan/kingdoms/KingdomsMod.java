@@ -9,6 +9,7 @@ import com.dantemorrigan.kingdoms.sim.Terrain;
 import com.dantemorrigan.kingdoms.world.CitizenEntity;
 import com.dantemorrigan.kingdoms.world.Constructor;
 import com.dantemorrigan.kingdoms.world.Population;
+import com.dantemorrigan.kingdoms.world.WarZone;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.attachment.v1.AttachmentRegistry;
 import net.fabricmc.fabric.api.attachment.v1.AttachmentType;
@@ -78,6 +79,7 @@ public final class KingdomsMod implements ModInitializer {
 			server = null;
 			Sync.clear();
 			Population.clear();
+			WarZone.clear();
 		});
 		ServerTickEvents.END_SERVER_TICK.register(KingdomsMod::tick);
 		LOG.info("The Dante's Kingdoms ready");
@@ -127,6 +129,7 @@ public final class KingdomsMod implements ModInitializer {
 		Sync.tick(s, r);
 		Constructor.tick(level, r);
 		Population.tick(level, r);
+		WarZone.tick(level, r);
 	}
 
 	private static int announced;

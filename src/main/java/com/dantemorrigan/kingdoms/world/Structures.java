@@ -30,18 +30,18 @@ public final class Structures {
 	public static Palette palette(int era) {
 		return switch (era) {
 			case 0 -> new Palette(s(Blocks.STRIPPED_OAK_LOG), s(Blocks.OAK_LOG), s(Blocks.COARSE_DIRT), s(Blocks.COBBLESTONE),
-					s(Blocks.HAY_BLOCK), s(Blocks.HAY_BLOCK), s(Blocks.AIR), s(Blocks.DIRT_PATH), s(Blocks.TORCH), s(Blocks.OAK_LOG), Blocks.OAK_DOOR);
+					s(Blocks.OAK_STAIRS), slab(Blocks.OAK_SLAB), s(Blocks.AIR), s(Blocks.DIRT_PATH), s(Blocks.TORCH), s(Blocks.OAK_LOG), Blocks.OAK_DOOR);
 			case 1 -> new Palette(s(Blocks.OAK_PLANKS), s(Blocks.OAK_LOG), s(Blocks.SPRUCE_PLANKS), s(Blocks.COBBLESTONE),
-					s(Blocks.SPRUCE_PLANKS), slab(Blocks.SPRUCE_SLAB), s(Blocks.GLASS_PANE), s(Blocks.DIRT_PATH), s(Blocks.LANTERN),
+					s(Blocks.SPRUCE_STAIRS), slab(Blocks.SPRUCE_SLAB), s(Blocks.GLASS_PANE), s(Blocks.DIRT_PATH), s(Blocks.LANTERN),
 					s(Blocks.COBBLESTONE), Blocks.SPRUCE_DOOR);
 			case 2 -> new Palette(s(Blocks.STONE_BRICKS), s(Blocks.SPRUCE_LOG), s(Blocks.SPRUCE_PLANKS), s(Blocks.COBBLESTONE),
-					s(Blocks.DARK_OAK_PLANKS), slab(Blocks.DARK_OAK_SLAB), s(Blocks.GLASS_PANE), s(Blocks.GRAVEL), s(Blocks.LANTERN),
+					s(Blocks.DARK_OAK_STAIRS), slab(Blocks.DARK_OAK_SLAB), s(Blocks.GLASS_PANE), s(Blocks.GRAVEL), s(Blocks.LANTERN),
 					s(Blocks.STONE_BRICKS), Blocks.DARK_OAK_DOOR);
 			case 3 -> new Palette(s(Blocks.WHITE_TERRACOTTA), s(Blocks.STRIPPED_DARK_OAK_LOG), s(Blocks.POLISHED_ANDESITE), s(Blocks.STONE_BRICKS),
-					s(Blocks.ORANGE_TERRACOTTA), s(Blocks.ORANGE_TERRACOTTA), s(Blocks.GLASS_PANE), s(Blocks.POLISHED_ANDESITE),
+					s(Blocks.BRICK_STAIRS), slab(Blocks.BRICK_SLAB), s(Blocks.GLASS_PANE), s(Blocks.POLISHED_ANDESITE),
 					s(Blocks.LANTERN), s(Blocks.STONE_BRICKS), Blocks.SPRUCE_DOOR);
 			default -> new Palette(s(Blocks.BRICKS), s(Blocks.STONE_BRICKS), s(Blocks.SMOOTH_STONE), s(Blocks.SMOOTH_STONE),
-					s(Blocks.DEEPSLATE_TILES), slab(Blocks.DEEPSLATE_TILE_SLAB), s(Blocks.GLASS_PANE), s(Blocks.ANDESITE),
+					s(Blocks.DEEPSLATE_TILE_STAIRS), slab(Blocks.DEEPSLATE_TILE_SLAB), s(Blocks.GLASS_PANE), s(Blocks.ANDESITE),
 					s(Blocks.LANTERN), s(Blocks.POLISHED_ANDESITE), Blocks.IRON_DOOR);
 		};
 	}
@@ -59,6 +59,7 @@ public final class Structures {
 		BlockState cloth = WOOL[Math.floorMod(dye, 16)].defaultBlockState();
 		RandomSource r = RandomSource.create(seed);
 		Blueprint b = new Blueprint();
+		b.gableWall = p.wall;
 		switch (type) {
 			case KEEP -> keep(b, p, era, cloth, dye);
 			case TOWN_HALL -> townHall(b, p, cloth);

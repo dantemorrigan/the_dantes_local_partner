@@ -113,6 +113,7 @@ public final class KingdomAI {
 			ruler(r, k);
 		}
 		if (r.day % 2 == 0) diplomacy(r, alive);
+		Trade.day(r);
 		armies(r);
 		for (Kingdom k : alive) if (r.day % 5 == k.id % 5) rebellion(r, k);
 		for (Kingdom k : alive) checkCollapse(r, k);
@@ -162,12 +163,15 @@ public final class KingdomAI {
 		gold += k.population * 0.012f * order;
 		know += k.population * 0.018f * order;
 
-		float eat = k.population * 0.05f + k.soldiers * 0.06f + armySoldiers(r, k) * 0.08f;
+		float eat = k.population * 0.06f + k.soldiers * 0.07f + armySoldiers(r, k) * 0.1f;
+		int built = 0;
+		for (Settlement s : r.settlementsOf(k.id)) built += s.buildings.size();
+		float upkeep = built * 0.045f + k.cells * 0.012f;
 		k.food += food - eat;
-		k.wood += wood;
-		k.stone += stone;
-		k.iron += iron;
-		k.gold += gold - (k.soldiers + armySoldiers(r, k)) * 0.03f;
+		k.wood += wood - k.population * 0.012f;
+		k.stone += stone - k.cells * 0.004f;
+		k.iron += iron - (k.soldiers + armySoldiers(r, k)) * 0.01f * k.era;
+		k.gold += gold - (k.soldiers + armySoldiers(r, k)) * 0.035f - upkeep;
 		k.knowledge += know;
 
 		// People.
@@ -221,10 +225,10 @@ public final class KingdomAI {
 	static void cap(Kingdom k) {
 		float storage = 200 + k.population * 6;
 		k.food = Math.min(k.food, storage);
-		k.wood = Math.min(k.wood, storage);
-		k.stone = Math.min(k.stone, storage);
-		k.iron = Math.min(k.iron, storage);
-		k.gold = Math.min(k.gold, storage * 2);
+		k.wood = Math.max(0, Math.min(k.wood, storage));
+		k.stone = Math.max(0, Math.min(k.stone, storage));
+		k.iron = Math.max(0, Math.min(k.iron, storage));
+		k.gold = Math.min(k.gold, storage * 1.5f);
 	}
 
 	static int countDone(Realm r, Kingdom k, BuildingType t) {
@@ -266,23 +270,32 @@ public final class KingdomAI {
 			int limit = s.capital ? 10 + k.era * 7 : 5 + k.era * 4;
 			if (s.buildings.size() >= limit) continue;
 			BuildingType t = choose(r, k, s);
-			if (t == null || !afford(k, t)) continue;
+			if (t == null || !afford(r, k, t)) continue;
 			int[] plot = nextPlot(r, s);
 			if (plot == null) continue;
-			pay(k, t);
+			pay(r, k, t);
 			s.buildings.add(new Settlement.Building(t, plot[0], plot[1], k.era));
 		}
 	}
 
-	static boolean afford(Kingdom k, BuildingType t) {
-		return k.wood >= t.wood && k.stone >= t.stone && k.iron >= t.iron && k.gold >= t.gold;
+	/** Everything costs more the bigger the realm: 4% per building already standing. */
+	static float costFactor(Realm r, Kingdom k) {
+		int built = 0;
+		for (Settlement s : r.settlementsOf(k.id)) built += s.buildings.size();
+		return 1f + built * 0.04f;
 	}
 
-	static void pay(Kingdom k, BuildingType t) {
-		k.wood -= t.wood;
-		k.stone -= t.stone;
-		k.iron -= t.iron;
-		k.gold -= t.gold;
+	static boolean afford(Realm r, Kingdom k, BuildingType t) {
+		float f = costFactor(r, k);
+		return k.wood >= t.wood * f && k.stone >= t.stone * f && k.iron >= t.iron * f && k.gold >= t.gold * f;
+	}
+
+	static void pay(Realm r, Kingdom k, BuildingType t) {
+		float f = costFactor(r, k);
+		k.wood -= t.wood * f;
+		k.stone -= t.stone * f;
+		k.iron -= t.iron * f;
+		k.gold -= t.gold * f;
 	}
 
 	static int[] nextPlot(Realm r, Settlement s) {
@@ -336,7 +349,7 @@ public final class KingdomAI {
 		}
 		if (era.ordinal() >= Era.RENAISSANCE.ordinal() && s.count(BuildingType.WORKSHOP) < (s.capital ? 2 : 1)) wish.add(BuildingType.WORKSHOP);
 		if (era.ordinal() >= Era.INDUSTRIAL.ordinal() && s.count(BuildingType.FACTORY) < (s.capital ? 2 : 1)) wish.add(BuildingType.FACTORY);
-		for (BuildingType t : wish) if (afford(k, t)) return t;
+		for (BuildingType t : wish) if (afford(r, k, t)) return t;
 		BuildingType[] filler = {BuildingType.HOUSE, BuildingType.FARM, BuildingType.HOUSE, BuildingType.LUMBER_CAMP, BuildingType.QUARRY};
 		return wish.isEmpty() ? filler[r.random.nextInt(filler.length)] : wish.get(0);
 	}
@@ -439,6 +452,17 @@ public final class KingdomAI {
 		r.log(1, c == null ? 0 : c.x, c == null ? 0 : c.z, "kingdoms.log.succession", Chronicle.kingdom(k), old, Chronicle.king(k));
 	}
 
+	/** The king was killed in the world: the realm is shaken and a successor takes the throne at once. */
+	public static void killKing(Realm r, Kingdom k) {
+		String old = Chronicle.king(k);
+		k.kingNumber = 1;
+		k.king = Names.person(r.random);
+		k.kingAge = 18 + r.random.nextInt(20);
+		k.stability = Math.max(0, k.stability - 20);
+		Settlement c = r.capitalOf(k);
+		r.log(2, c == null ? 0 : c.x, c == null ? 0 : c.z, "kingdoms.log.king_slain", Chronicle.kingdom(k), old, Chronicle.king(k));
+	}
+
 	// ------------------------------------------------------------------ diplomacy
 
 	static void diplomacy(Realm r, List<Kingdom> alive) {
@@ -483,10 +507,11 @@ public final class KingdomAI {
 	}
 
 	static void tryWar(Realm r, Kingdom a, Kingdom b) {
-		if (a.relation(b.id) > -35 || a.allies.contains(b.id) || a.stability < 25) return;
+		boolean claim = claims(r, a.id, b.id) > 0;
+		if (a.allies.contains(b.id) || a.stability < 25 || (a.relation(b.id) > (claim ? -10 : -22) && !(a.aggression > 0.7f && a.relation(b.id) < 5))) return;
 		float mine = a.might() + armySoldiers(r, a) * a.era().might, theirs = b.might() + armySoldiers(r, b) * b.era().might;
-		if (mine < theirs * (1.35f - a.aggression * 0.4f)) return;
-		if (r.random.nextFloat() > 0.02f + a.aggression * 0.04f) return;
+		if (mine < theirs * (1.25f - a.aggression * 0.4f)) return;
+		if (r.random.nextFloat() > 0.05f + a.aggression * 0.08f) return;
 		declareWar(r, a, b, false);
 	}
 
@@ -548,14 +573,34 @@ public final class KingdomAI {
 	// ------------------------------------------------------------------ armies and war
 
 	static void armies(Realm r) {
-		// Raise armies for wars.
 		for (Kingdom k : r.kingdoms.values()) {
 			if (!k.alive) continue;
-			int own = 0;
-			for (Army a : r.armies.values()) if (a.kingdom == k.id) own++;
-			if (!k.wars.isEmpty() && own < 1 + k.era / 2 && k.soldiers >= 6) {
-				Settlement c = r.capitalOf(k);
-				if (c != null) raiseArmy(r, k, r.cellX(c.x) + 0.5f, r.cellZ(c.z) + 0.5f, k.soldiers * 0.6f);
+			int attack = 0, defence = 0, patrol = 0;
+			for (Army a : r.armies.values()) {
+				if (a.kingdom != k.id) continue;
+				if (a.mission == 0) attack++;
+				else if (a.mission == 2) defence++;
+				else patrol++;
+			}
+			Settlement c = r.capitalOf(k);
+			if (!k.wars.isEmpty()) {
+				if (attack < 1 + k.era / 2 && k.soldiers >= 6 && c != null) {
+					raiseArmy(r, k, r.cellX(c.x) + 0.5f, r.cellZ(c.z) + 0.5f, k.soldiers * 0.55f);
+				}
+				if (defence < 1 && k.soldiers >= 4) {
+					Army threat = threat(r, k);
+					if (threat != null) {
+						Settlement near = nearestTown(r, k, threat.x, threat.z);
+						Army d = near == null ? null : raiseArmy(r, k, r.cellX(near.x) + 0.5f, r.cellZ(near.z) + 0.5f, Math.max(3, k.soldiers * 0.4f));
+						if (d != null) d.mission = 2;
+					}
+				}
+			} else if (patrol < 2 && k.soldiers >= 5 && r.day % 7 == k.id % 7) {
+				float[] post = borderPost(r, k, r.random.nextInt(64));
+				if (post != null) {
+					Army p = raiseArmy(r, k, post[0], post[1], Math.min(6, k.soldiers * 0.25f));
+					if (p != null) p.mission = 1;
+				}
 			}
 		}
 		List<Army> list = new ArrayList<>(r.armies.values());
@@ -566,13 +611,14 @@ public final class KingdomAI {
 				continue;
 			}
 			a.fighting = Math.max(0, a.fighting - 1);
-			// Battles between hostile armies.
+			// Battles between hostile armies: arithmetic only where nobody watches; where soldiers really fight, they decide.
 			for (Army o : list) {
 				if (o == a || o.soldiers < 0.5f || !k.wars.contains(o.kingdom)) continue;
 				if (Math.hypot(o.x - a.x, o.z - a.z) > 1.3) continue;
 				Kingdom ok = r.kingdoms.get(o.kingdom);
 				if (ok == null) continue;
-				float hitA = o.soldiers * ok.era().might * 0.07f, hitB = a.soldiers * k.era().might * 0.07f;
+				float damp = a.observed && o.observed ? 0.08f : a.observed || o.observed ? 0.4f : 1f;
+				float hitA = o.soldiers * ok.era().might * 0.07f * damp, hitB = a.soldiers * k.era().might * 0.07f * damp;
 				a.soldiers -= hitA / k.era().might;
 				o.soldiers -= hitB / ok.era().might;
 				a.fighting = o.fighting = 3;
@@ -583,13 +629,46 @@ public final class KingdomAI {
 				}
 			}
 			if (a.soldiers < 0.5f) continue;
+			float pace = a.observed ? 0.55f : 1f;
+			if (a.mission == 1) {
+				if (!k.wars.isEmpty()) {
+					a.mission = 0;
+				} else {
+					if ((a.tx == a.x && a.tz == a.z) || Math.hypot(a.tx - a.x, a.tz - a.z) < 0.4 || r.day % 6 == a.id % 6) {
+						float[] post = borderPost(r, k, r.random.nextInt(64));
+						if (post == null) {
+							goHome(r, k, a);
+							continue;
+						}
+						a.tx = post[0];
+						a.tz = post[1];
+					}
+					march(a, 0.22f * pace);
+					continue;
+				}
+			}
+			if (a.mission == 2) {
+				if (k.wars.isEmpty()) {
+					goHome(r, k, a);
+					continue;
+				}
+				Army threat = threat(r, k);
+				if (threat == null) {
+					goHome(r, k, a);
+					continue;
+				}
+				a.tx = threat.x;
+				a.tz = threat.z;
+				march(a, 0.5f * pace);
+				continue;
+			}
 			if (k.wars.isEmpty() || (a.target != 0 && !k.wars.contains(a.target))) {
 				goHome(r, k, a);
 				continue;
 			}
 			if (a.target == 0 || !k.wars.contains(a.target)) a.target = k.wars.iterator().next();
 			if (r.day % 4 == a.id % 4 || (a.tx == a.x && a.tz == a.z)) chooseObjective(r, k, a);
-			march(a, 0.45f);
+			march(a, 0.45f * pace);
 			siegeStep(r, k, a);
 		}
 		r.armies.values().removeIf(a -> a.soldiers < 0.5f);
@@ -603,6 +682,53 @@ public final class KingdomAI {
 				if (!present) r.setSiege(i, r.siegeBy[i], r.siege[i] - 6);
 			}
 		}
+	}
+
+	/** An enemy army close to one of this kingdom's towns. */
+	static Army threat(Realm r, Kingdom k) {
+		Army best = null;
+		double bd = 13;
+		for (Army e : r.armies.values()) {
+			if (e.soldiers < 1 || !k.wars.contains(e.kingdom)) continue;
+			for (Settlement s : r.settlementsOf(k.id)) {
+				double d = Math.hypot(e.x - r.cellX(s.x) - 0.5, e.z - r.cellZ(s.z) - 0.5);
+				if (d < bd) {
+					bd = d;
+					best = e;
+				}
+			}
+		}
+		return best;
+	}
+
+	static Settlement nearestTown(Realm r, Kingdom k, float x, float z) {
+		Settlement best = null;
+		double bd = Double.MAX_VALUE;
+		for (Settlement s : r.settlementsOf(k.id)) {
+			double d = Math.hypot(x - r.cellX(s.x), z - r.cellZ(s.z));
+			if (d < bd) {
+				bd = d;
+				best = s;
+			}
+		}
+		return best;
+	}
+
+	/** A cell on the kingdom's frontier (next to another kingdom's land), picked by a rolling index; null if it has no frontier. */
+	static float[] borderPost(Realm r, Kingdom k, int pick) {
+		List<int[]> posts = new ArrayList<>();
+		for (int z = 0; z < Realm.N; z++) for (int x = 0; x < Realm.N; x++) {
+			if (r.owner[Realm.idx(x, z)] != k.id) continue;
+			int o = 0;
+			for (int d = 0; d < 4 && o == 0; d++) {
+				int w = r.ownerAt(x + (d == 0 ? 1 : d == 1 ? -1 : 0), z + (d == 2 ? 1 : d == 3 ? -1 : 0));
+				if (w != 0 && w != k.id) o = w;
+			}
+			if (o != 0) posts.add(new int[]{x, z});
+		}
+		if (posts.isEmpty()) return null;
+		int[] p = posts.get(pick % posts.size());
+		return new float[]{p[0] + 0.5f, p[1] + 0.5f};
 	}
 
 	public static Army raiseArmy(Realm r, Kingdom k, float x, float z, float soldiers) {
@@ -686,6 +812,7 @@ public final class KingdomAI {
 		if (town != null) defense += 18 + def.might() * (town.capital ? 0.5f : 0.25f) + town.count(BuildingType.WALL_TOWER) * 10;
 		float attack = a.soldiers * k.era().might;
 		float rate = 40f * attack / (attack + defense);
+		if (a.observed) rate *= Math.max(0.12f, a.pressure);
 		a.soldiers -= defense * 0.008f;
 		def.soldiers = Math.max(0, def.soldiers - attack * 0.002f);
 		a.fighting = Math.max(a.fighting, 1);

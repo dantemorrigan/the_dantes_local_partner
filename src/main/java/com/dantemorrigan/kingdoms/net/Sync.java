@@ -185,6 +185,21 @@ public final class Sync {
 		ListTag as = new ListTag();
 		for (Army a : r.armies.values()) as.add(a.save());
 		d.put("armies", as);
+		ListTag cs = new ListTag();
+		for (com.dantemorrigan.kingdoms.sim.Caravan c : r.caravans.values()) {
+			CompoundTag t = new CompoundTag();
+			t.putInt("id", c.id);
+			t.putInt("k", c.kingdom);
+			t.putFloat("x", c.x(Realm.N));
+			t.putFloat("z", c.z(Realm.N));
+			t.putBoolean("ret", c.returning);
+			t.putInt("gt", c.giveType);
+			t.putInt("ga", c.giveAmt);
+			t.putInt("rt", c.getType);
+			t.putInt("ra", c.getAmt);
+			cs.add(t);
+		}
+		d.put("caravans", cs);
 	}
 
 	/** Full state to every watcher (after a divine act). */

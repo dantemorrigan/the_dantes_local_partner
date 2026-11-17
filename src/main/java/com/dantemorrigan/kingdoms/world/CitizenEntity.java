@@ -32,6 +32,12 @@ import net.minecraft.world.entity.ai.goal.target.NearestAttackableTargetGoal;
 import net.minecraft.world.entity.ai.navigation.GroundPathNavigation;
 import net.minecraft.world.entity.monster.Enemy;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.monster.RangedAttackMob;
+import net.minecraft.world.item.trading.Merchant;
+import net.minecraft.world.item.trading.MerchantOffer;
+import net.minecraft.world.item.trading.MerchantOffers;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -47,8 +53,8 @@ import java.util.EnumSet;
  * holds court in the keep. Their number follows the simulated population; they are not saved with the world
  * (the town spawns them again when someone comes back).
  */
-public class CitizenEntity extends PathfinderMob {
-	public static final int PEASANT = 0, BUILDER = 1, SOLDIER = 2, KING = 3;
+public class CitizenEntity extends PathfinderMob implements RangedAttackMob, Merchant {
+	public static final int PEASANT = 0, BUILDER = 1, SOLDIER = 2, KING = 3, MERCHANT = 4;
 	public static final String[] SKINS = {"steve", "alex", "ari", "efe", "kai", "makena", "noor", "sunny", "zuri"};
 
 	private static final EntityDataAccessor<Integer> DATA_ROLE = SynchedEntityData.defineId(CitizenEntity.class, EntityDataSerializers.INT);
@@ -57,6 +63,14 @@ public class CitizenEntity extends PathfinderMob {
 
 	public int kingdom;
 	public int settlement;
+	/** Field army this soldier belongs to (0: town garrison). */
+	public int armyId;
+	/** How many simulated soldiers this one stands for. */
+	public float weight = 1f;
+	/** Caravan this merchant walks with (0: a market vendor). */
+	public int caravanId;
+	private Player tradingPlayer;
+	private MerchantOffers offers;
 
 	public CitizenEntity(EntityType<? extends CitizenEntity> type, Level level) {
 		super(type, level);
@@ -100,22 +114,30 @@ public class CitizenEntity extends PathfinderMob {
 	protected void registerGoals() {
 		this.goalSelector.addGoal(0, new FloatGoal(this));
 		this.goalSelector.addGoal(1, new OpenDoorGoal(this, true));
-		this.goalSelector.addGoal(2, new MeleeAttackGoal(this, 1.15, true) {
+		this.goalSelector.addGoal(2, new ArcherGoal(this));
+		this.goalSelector.addGoal(2, new MeleeAttackGoal(this, 1.25, true) {
 			@Override
 			public boolean canUse() {
-				return (role() == SOLDIER || role() == KING) && super.canUse();
+				return (role() == SOLDIER || role() == KING) && !isHolding(Items.BOW) && super.canUse();
 			}
 		});
 		this.goalSelector.addGoal(3, new BuildGoal(this));
-		this.goalSelector.addGoal(4, new MoveTowardsRestrictionGoal(this, 0.9));
-		this.goalSelector.addGoal(5, new WaterAvoidingRandomStrollGoal(this, 0.7));
-		this.goalSelector.addGoal(6, new LookAtPlayerGoal(this, Player.class, 8f));
-		this.goalSelector.addGoal(7, new RandomLookAroundGoal(this));
+		this.goalSelector.addGoal(4, new PatrolGoal(this));
+		this.goalSelector.addGoal(5, new MoveTowardsRestrictionGoal(this, 0.9));
+		this.goalSelector.addGoal(6, new WaterAvoidingRandomStrollGoal(this, 0.7) {
+			@Override
+			public boolean canUse() {
+				return !(role() == SOLDIER && armyId != 0) && super.canUse();
+			}
+		});
+		this.goalSelector.addGoal(7, new LookAtPlayerGoal(this, Player.class, 8f));
+		this.goalSelector.addGoal(8, new RandomLookAroundGoal(this));
 		this.targetSelector.addGoal(1, new HurtByTargetGoal(this).setAlertOthers(CitizenEntity.class));
 		this.targetSelector.addGoal(2, new NearestAttackableTargetGoal<>(this, Mob.class, 10, true, false,
 				(target, level) -> (role() == SOLDIER) && target instanceof Enemy));
-		this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, CitizenEntity.class, 10, true, false,
-				(target, level) -> role() == SOLDIER && target instanceof CitizenEntity c && hostile(c)));
+		this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, CitizenEntity.class, 4, false, false,
+				(target, level) -> role() == SOLDIER && target instanceof CitizenEntity c && hostile(c)
+						&& (c.role() == SOLDIER || c.role() == KING)));
 	}
 
 	boolean hostile(CitizenEntity other) {
@@ -144,6 +166,12 @@ public class CitizenEntity extends PathfinderMob {
 				this.setItemSlot(EquipmentSlot.FEET, dyed(Items.LEATHER_BOOTS, color));
 				this.getAttribute(Attributes.MAX_HEALTH).setBaseValue(24 + era * 4);
 				this.getAttribute(Attributes.ATTACK_DAMAGE).setBaseValue(2 + era);
+				this.getAttribute(Attributes.FOLLOW_RANGE).setBaseValue(40);
+			}
+			case MERCHANT -> {
+				this.setItemSlot(EquipmentSlot.CHEST, dyed(Items.LEATHER_CHESTPLATE, 0x5A8F4E));
+				this.setItemSlot(EquipmentSlot.HEAD, dyed(Items.LEATHER_HELMET, 0xC9A24A));
+				this.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(Items.EMERALD));
 			}
 			case KING -> {
 				this.setItemSlot(EquipmentSlot.HEAD, new ItemStack(Items.GOLDEN_HELMET));
@@ -163,11 +191,77 @@ public class CitizenEntity extends PathfinderMob {
 			}
 		}
 		this.setHealth(this.getMaxHealth());
-		this.setHomeTo(new BlockPos(s.x, (int) this.getY(), s.z), role == KING ? 6 : 34);
+		if (role != MERCHANT) this.setHomeTo(new BlockPos(s.x, (int) this.getY(), s.z), role == KING ? 6 : 34);
 		this.setCustomName(Component.translatable("kingdoms.citizen." + role, k.title()));
 		this.setCustomNameVisible(role == KING);
 		if (role == KING) this.setCustomName(Component.translatable("kingdoms.citizen.king_named", k.kingTitle(), k.title()));
 	}
+
+	/** Turns a soldier into a bowman. */
+	public void makeArcher() {
+		this.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(Items.BOW));
+		this.setItemSlot(EquipmentSlot.OFFHAND, ItemStack.EMPTY);
+	}
+
+	/** A vendor stays by its market stall. */
+	public void stayAt(BlockPos pos, int radius) {
+		this.setHomeTo(pos, radius);
+	}
+
+	@Override
+	public void performRangedAttack(LivingEntity target, float power) {
+		if (!(this.level() instanceof ServerLevel level)) return;
+		ItemStack bow = this.getMainHandItem();
+		var arrow = net.minecraft.world.entity.projectile.ProjectileUtil.getMobArrow(this, new ItemStack(Items.ARROW), power, bow);
+		double dx = target.getX() - this.getX(), dy = target.getY(0.3333) - arrow.getY(), dz = target.getZ() - this.getZ();
+		double flat = Math.sqrt(dx * dx + dz * dz);
+		net.minecraft.world.entity.projectile.Projectile.spawnProjectileUsingShoot(arrow, level, new ItemStack(Items.ARROW), dx, dy + flat * 0.2, dz, 1.6f, 6f);
+		this.playSound(net.minecraft.sounds.SoundEvents.SKELETON_SHOOT, 1f, 1f / (this.getRandom().nextFloat() * 0.4f + 0.8f));
+	}
+
+	@Override
+	public void die(DamageSource source) {
+		super.die(source);
+		if (!this.level().isClientSide()) WarZone.onDeath(this);
+	}
+
+	// ---------------------------------------------------------------- trading
+
+	@Override
+	protected InteractionResult mobInteract(Player player, InteractionHand hand) {
+		if (role() != MERCHANT || !this.isAlive() || this.tradingPlayer != null) return super.mobInteract(player, hand);
+		Realm r = KingdomsMod.realm();
+		Kingdom k = r == null ? null : r.kingdoms.get(kingdom);
+		if (k == null || !k.alive || k.wars.contains(0)) return InteractionResult.PASS;
+		if (!this.level().isClientSide()) {
+			this.offers = Market.offers(k);
+			this.setTradingPlayer(player);
+			this.openTradingScreen(player, this.getDisplayName(), 1);
+		}
+		return InteractionResult.SUCCESS;
+	}
+
+	@Override public void setTradingPlayer(Player player) { this.tradingPlayer = player; }
+	@Override public Player getTradingPlayer() { return this.tradingPlayer; }
+	@Override public MerchantOffers getOffers() { return this.offers == null ? new MerchantOffers() : this.offers; }
+	@Override public void overrideOffers(MerchantOffers offers) { this.offers = offers; }
+
+	@Override
+	public void notifyTrade(MerchantOffer offer) {
+		offer.increaseUses();
+		Realm r = KingdomsMod.realm();
+		Kingdom k = r == null ? null : r.kingdoms.get(kingdom);
+		if (k != null) Market.applied(k, offer);
+		this.playSound(net.minecraft.sounds.SoundEvents.VILLAGER_YES, 1f, 1f);
+	}
+
+	@Override public void notifyTradeUpdated(ItemStack stack) {}
+	@Override public int getVillagerXp() { return 0; }
+	@Override public void overrideXp(int xp) {}
+	@Override public boolean showProgressBar() { return false; }
+	@Override public net.minecraft.sounds.SoundEvent getNotifyTradeSound() { return net.minecraft.sounds.SoundEvents.VILLAGER_YES; }
+	@Override public boolean isClientSide() { return this.level().isClientSide(); }
+	@Override public boolean stillValid(Player player) { return this.tradingPlayer == player && this.isAlive(); }
 
 	static ItemStack dyed(Item item, int rgb) {
 		ItemStack s = new ItemStack(item);
@@ -238,6 +332,90 @@ public class CitizenEntity extends PathfinderMob {
 		@Override
 		public void stop() {
 			site = null;
+		}
+	}
+
+	/** Bowmen keep their distance and loose arrows at the target. */
+	static final class ArcherGoal extends Goal {
+		private final CitizenEntity mob;
+		private int cooldown;
+
+		ArcherGoal(CitizenEntity mob) {
+			this.mob = mob;
+			this.setFlags(EnumSet.of(Flag.MOVE, Flag.LOOK));
+		}
+
+		@Override
+		public boolean canUse() {
+			return mob.role() == SOLDIER && mob.isHolding(Items.BOW) && mob.getTarget() != null && mob.getTarget().isAlive();
+		}
+
+		@Override
+		public boolean canContinueToUse() {
+			return canUse();
+		}
+
+		@Override
+		public void start() {
+			cooldown = 15;
+		}
+
+		@Override
+		public void tick() {
+			LivingEntity t = mob.getTarget();
+			if (t == null) return;
+			double d = mob.distanceToSqr(t);
+			mob.getLookControl().setLookAt(t, 30f, 30f);
+			if (d > 20 * 20 || !mob.hasLineOfSight(t)) mob.getNavigation().moveTo(t, 1.0);
+			else if (d < 7 * 7) mob.getMoveControl().strafe(-0.5f, 0f);
+			else mob.getNavigation().stop();
+			if (--cooldown <= 0 && d < 22 * 22 && mob.hasLineOfSight(t)) {
+				mob.performRangedAttack(t, 1f);
+				cooldown = 30 + mob.random.nextInt(15);
+			}
+		}
+	}
+
+	/** Garrison soldiers walk the streets around their town in a loop. */
+	static final class PatrolGoal extends Goal {
+		private final CitizenEntity mob;
+		private int waypoint;
+		private BlockPos goal;
+		private int time;
+
+		PatrolGoal(CitizenEntity mob) {
+			this.mob = mob;
+			this.setFlags(EnumSet.of(Flag.MOVE));
+		}
+
+		@Override
+		public boolean canUse() {
+			if (mob.role() != SOLDIER || mob.armyId != 0 || mob.getTarget() != null || mob.random.nextInt(30) != 0) return false;
+			Realm r = KingdomsMod.realm();
+			Settlement s = r == null ? null : r.settlements.get(mob.settlement);
+			if (s == null) return false;
+			double ang = (waypoint++ % 8) / 8.0 * Math.PI * 2 + (mob.getId() % 8) * 0.4;
+			int rad = 16 + mob.getId() % 3 * 5;
+			int x = s.x + (int) Math.round(Math.cos(ang) * rad), z = s.z + (int) Math.round(Math.sin(ang) * rad);
+			if (!mob.level().hasChunkAt(new BlockPos(x, 64, z))) return false;
+			goal = new BlockPos(x, mob.level().getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z), z);
+			return true;
+		}
+
+		@Override
+		public boolean canContinueToUse() {
+			return goal != null && mob.getTarget() == null && time < 300 && !mob.getNavigation().isDone();
+		}
+
+		@Override
+		public void start() {
+			time = 0;
+			mob.getNavigation().moveTo(goal.getX() + 0.5, goal.getY(), goal.getZ() + 0.5, 0.8);
+		}
+
+		@Override
+		public void tick() {
+			time++;
 		}
 	}
 

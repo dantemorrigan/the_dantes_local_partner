@@ -38,6 +38,7 @@ public final class ClientRealm {
 	public static final Map<Integer, KView> kingdoms = new LinkedHashMap<>();
 	public static final List<TView> towns = new ArrayList<>();
 	public static final Map<Integer, AView> armies = new HashMap<>();
+	public static final Map<Integer, CView> caravans = new HashMap<>();
 	public static final List<Chronicle.Entry> news = new ArrayList<>();
 	public static long newsVersion;
 
@@ -92,8 +93,23 @@ public final class ClientRealm {
 		}
 	}
 
+	public static final class CView {
+		public int id, kingdom, giveType, giveAmt, getType, getAmt;
+		public boolean returning;
+		public float x, z, px, pz;
+		public long at;
+
+		public float rx(long now, long dayMs) {
+			return px + (x - px) * Math.min(1f, (now - at) / (float) dayMs);
+		}
+
+		public float rz(long now, long dayMs) {
+			return pz + (z - pz) * Math.min(1f, (now - at) / (float) dayMs);
+		}
+	}
+
 	public static final class AView {
-		public int id, kingdom, target, fighting;
+		public int id, kingdom, target, fighting, mission;
 		public float x, z, px, pz, soldiers;
 		public long at;
 
@@ -206,6 +222,7 @@ public final class ClientRealm {
 		readKingdoms(d);
 		readTowns(d);
 		readArmies(d, now);
+		readCaravans(d, now);
 		for (Tag t : d.getListOrEmpty("news")) if (t instanceof CompoundTag c) news.add(Chronicle.Entry.load(c));
 		while (news.size() > 120) news.remove(0);
 		newsVersion++;
@@ -294,7 +311,37 @@ public final class ClientRealm {
 			a.soldiers = c.getFloatOr("s", 0);
 			a.target = c.getIntOr("tg", 0);
 			a.fighting = c.getIntOr("f", 0);
+			a.mission = c.getIntOr("m", 0);
 			armies.put(id, a);
+		}
+	}
+
+	static void readCaravans(CompoundTag d, long now) {
+		Map<Integer, CView> old = new HashMap<>(caravans);
+		caravans.clear();
+		for (Tag t : d.getListOrEmpty("caravans")) {
+			if (!(t instanceof CompoundTag c)) continue;
+			int id = c.getIntOr("id", 0);
+			CView v = old.get(id);
+			if (v == null) {
+				v = new CView();
+				v.id = id;
+				v.px = v.x = c.getFloatOr("x", 0);
+				v.pz = v.z = c.getFloatOr("z", 0);
+			} else {
+				v.px = v.rx(now, dayMs());
+				v.pz = v.rz(now, dayMs());
+				v.x = c.getFloatOr("x", 0);
+				v.z = c.getFloatOr("z", 0);
+			}
+			v.at = now;
+			v.kingdom = c.getIntOr("k", 0);
+			v.returning = c.getBooleanOr("ret", false);
+			v.giveType = c.getIntOr("gt", 0);
+			v.giveAmt = c.getIntOr("ga", 0);
+			v.getType = c.getIntOr("rt", 0);
+			v.getAmt = c.getIntOr("ra", 0);
+			caravans.put(id, v);
 		}
 	}
 
@@ -342,6 +389,7 @@ public final class ClientRealm {
 		kingdoms.clear();
 		towns.clear();
 		armies.clear();
+		caravans.clear();
 		news.clear();
 	}
 
