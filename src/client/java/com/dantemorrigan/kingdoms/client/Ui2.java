@@ -3,6 +3,7 @@ package com.dantemorrigan.kingdoms.client;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.network.chat.Component;
+import net.minecraft.locale.Language;
 import net.minecraft.util.FormattedCharSequence;
 
 import java.util.List;
@@ -17,23 +18,37 @@ final class Ui2 {
 		fit(g, font, text, x, y, maxW, color, 1f);
 	}
 
+	/** Never draws with a zero or negative width (that mirrors the text); too long text is shrunk, then cut. */
 	static void fit(GuiGraphicsExtractor g, Font font, Component text, int x, int y, int maxW, int color, float scale) {
-		int w = font.width(text);
-		float s = w * scale > maxW ? maxW / (float) Math.max(1, w) : scale;
+		if (maxW < 4) return;
+		int w = Math.max(1, font.width(text));
+		float s = w * scale > maxW ? maxW / (float) w : scale;
+		FormattedCharSequence seq = text.getVisualOrderText();
+		if (s < 0.5f) {
+			s = 0.5f;
+			seq = Language.getInstance().getVisualOrder(font.substrByWidth(text, Math.max(1, (int) (maxW / s))));
+		}
 		g.pose().pushMatrix();
 		g.pose().translate(x, y);
 		g.pose().scale(s, s);
-		g.text(font, text, 0, 0, color, true);
+		g.text(font, seq, 0, 0, color, true);
 		g.pose().popMatrix();
 	}
 
 	static void fitCentered(GuiGraphicsExtractor g, Font font, Component text, int cx, int y, int maxW, int color) {
-		int w = font.width(text);
-		float s = w > maxW ? maxW / (float) Math.max(1, w) : 1f;
+		if (maxW < 4) return;
+		int w = Math.max(1, font.width(text));
+		float s = w > maxW ? Math.max(0.5f, maxW / (float) w) : 1f;
+		FormattedCharSequence seq = text.getVisualOrderText();
+		int shown = w;
+		if (w * s > maxW) {
+			seq = Language.getInstance().getVisualOrder(font.substrByWidth(text, Math.max(1, (int) (maxW / s))));
+			shown = (int) (maxW / s);
+		}
 		g.pose().pushMatrix();
-		g.pose().translate(cx - w * s / 2f, y);
+		g.pose().translate(cx - shown * s / 2f, y);
 		g.pose().scale(s, s);
-		g.text(font, text, 0, 0, color, true);
+		g.text(font, seq, 0, 0, color, true);
 		g.pose().popMatrix();
 	}
 
@@ -43,6 +58,7 @@ final class Ui2 {
 
 	/** Returns the y below the text. */
 	static int wrap(GuiGraphicsExtractor g, Font font, Component text, int x, int y, int maxW, int color, float scale) {
+		if (maxW < 8) return y;
 		List<FormattedCharSequence> lines = font.split(text, (int) (maxW / scale));
 		g.pose().pushMatrix();
 		g.pose().translate(x, y);

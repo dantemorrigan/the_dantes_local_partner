@@ -46,6 +46,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.levelgen.Heightmap;
 
 import java.util.EnumSet;
+import java.util.List;
 
 /**
  * A subject of a kingdom, alive in the world while someone is near its town: peasants stroll and tend, builders
@@ -69,6 +70,9 @@ public class CitizenEntity extends PathfinderMob implements RangedAttackMob, Mer
 	public float weight = 1f;
 	/** Caravan this merchant walks with (0: a market vendor). */
 	public int caravanId;
+	/** A fixed post (a tower top): the soldier stands here and shoots. */
+	public boolean hasPost;
+	public double postX, postY, postZ;
 	private Player tradingPlayer;
 	private MerchantOffers offers;
 
@@ -121,13 +125,14 @@ public class CitizenEntity extends PathfinderMob implements RangedAttackMob, Mer
 				return (role() == SOLDIER || role() == KING) && !isHolding(Items.BOW) && super.canUse();
 			}
 		});
+		this.goalSelector.addGoal(3, new PostGoal(this));
 		this.goalSelector.addGoal(3, new BuildGoal(this));
 		this.goalSelector.addGoal(4, new PatrolGoal(this));
 		this.goalSelector.addGoal(5, new MoveTowardsRestrictionGoal(this, 0.9));
 		this.goalSelector.addGoal(6, new WaterAvoidingRandomStrollGoal(this, 0.7) {
 			@Override
 			public boolean canUse() {
-				return !(role() == SOLDIER && armyId != 0) && super.canUse();
+				return !(role() == SOLDIER && (armyId != 0 || hasPost)) && super.canUse();
 			}
 		});
 		this.goalSelector.addGoal(7, new LookAtPlayerGoal(this, Player.class, 8f));
@@ -279,10 +284,10 @@ public class CitizenEntity extends PathfinderMob implements RangedAttackMob, Mer
 		return false;
 	}
 
-	/** Builders walk to a site that is still under construction and work there. */
+	/** Builders walk to a building that is going up, circle it and work: the blocks appear where they stand. */
 	static final class BuildGoal extends Goal {
 		private final CitizenEntity mob;
-		private BlockPos site;
+		private int cx, cz, y;
 		private int time;
 
 		BuildGoal(CitizenEntity mob) {
@@ -290,48 +295,93 @@ public class CitizenEntity extends PathfinderMob implements RangedAttackMob, Mer
 			this.setFlags(EnumSet.of(Flag.MOVE, Flag.LOOK));
 		}
 
-		@Override
-		public boolean canUse() {
-			if (mob.role() != BUILDER || mob.random.nextInt(40) != 0) return false;
+		private boolean pick() {
 			Realm r = KingdomsMod.realm();
 			Settlement s = r == null ? null : r.settlements.get(mob.settlement);
 			if (s == null) return false;
-			for (Settlement.Building b : s.buildings) {
-				if (!b.done() && !b.ruined) {
-					int x = b.px + 6, z = b.pz + 6;
-					site = new BlockPos(x, mob.level().getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z), z);
-					return true;
-				}
+			List<int[]> sites = new java.util.ArrayList<>();
+			for (Settlement.Building b : s.buildings) if (!b.done() && !b.ruined) sites.add(new int[]{b.px + 6, b.pz + 6, b.y == Integer.MIN_VALUE ? Integer.MIN_VALUE : b.y + 1});
+			if (s.wall > 0 && s.wallProgress < 1f) { // the front of the wall going up
+				int[] pos = s.wallPos(Math.max(0, Math.min(Settlement.WALL_LEN - 1, (int) (s.wallProgress * Settlement.WALL_LEN))));
+				sites.add(new int[]{pos[0], pos[1], Integer.MIN_VALUE});
 			}
-			return false;
+			if (sites.isEmpty()) return false;
+			int[] site = sites.get(Math.floorMod(mob.getId(), sites.size()));
+			cx = site[0];
+			cz = site[1];
+			y = site[2] == Integer.MIN_VALUE ? mob.level().getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, cx, cz) : site[2];
+			return true;
+		}
+
+		@Override
+		public boolean canUse() {
+			return mob.role() == BUILDER && mob.random.nextInt(10) == 0 && pick();
 		}
 
 		@Override
 		public boolean canContinueToUse() {
-			return site != null && time < 400;
+			return mob.role() == BUILDER && time < 600 && cx != 0;
+		}
+
+		private void walk() {
+			double ang = mob.random.nextDouble() * Math.PI * 2;
+			int r = 5 + mob.random.nextInt(3);
+			int x = cx + (int) Math.round(Math.cos(ang) * r), z = cz + (int) Math.round(Math.sin(ang) * r);
+			mob.getNavigation().moveTo(x + 0.5, mob.level().getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z), z + 0.5, 0.9);
 		}
 
 		@Override
 		public void start() {
 			time = 0;
-			mob.getNavigation().moveTo(site.getX() + 0.5, site.getY(), site.getZ() + 0.5, 0.85);
+			walk();
 		}
 
 		@Override
 		public void tick() {
 			time++;
-			mob.getLookControl().setLookAt(site.getX() + 0.5, site.getY() + 1, site.getZ() + 0.5);
-			if (mob.distanceToSqr(site.getX() + 0.5, site.getY(), site.getZ() + 0.5) < 36) {
-				mob.getNavigation().stop();
-				if (time % 8 == 0) mob.swing(InteractionHand.MAIN_HAND);
-			} else if (time % 40 == 0) {
-				mob.getNavigation().moveTo(site.getX() + 0.5, site.getY(), site.getZ() + 0.5, 0.85);
-			}
+			mob.getLookControl().setLookAt(cx + 0.5, y + 2, cz + 0.5);
+			if (time % 7 == 0) mob.swing(InteractionHand.MAIN_HAND);
+			if (time % 90 == 0 || mob.getNavigation().isDone() && time % 30 == 0) walk();
+			if (time % 120 == 0 && !pick()) cx = 0; // the building is finished: look for the next one
 		}
 
 		@Override
 		public void stop() {
-			site = null;
+			cx = 0;
+		}
+	}
+
+	public void setPost(double x, double y, double z) {
+		this.hasPost = true;
+		this.postX = x;
+		this.postY = y;
+		this.postZ = z;
+		this.setPersistenceRequired();
+	}
+
+	/** Stays on its post (a tower top) unless something is in reach to shoot or fight. */
+	static final class PostGoal extends Goal {
+		private final CitizenEntity mob;
+
+		PostGoal(CitizenEntity mob) {
+			this.mob = mob;
+			this.setFlags(EnumSet.of(Flag.MOVE));
+		}
+
+		@Override
+		public boolean canUse() {
+			return mob.hasPost && mob.distanceToSqr(mob.postX, mob.postY, mob.postZ) > 2.5;
+		}
+
+		@Override
+		public boolean canContinueToUse() {
+			return canUse() && mob.getTarget() == null;
+		}
+
+		@Override
+		public void start() {
+			if (mob.distanceToSqr(mob.postX, mob.postY, mob.postZ) > 30 * 30) mob.teleportTo(mob.postX, mob.postY, mob.postZ);
+			else mob.getNavigation().moveTo(mob.postX, mob.postY, mob.postZ, 1.0);
 		}
 	}
 
@@ -390,7 +440,7 @@ public class CitizenEntity extends PathfinderMob implements RangedAttackMob, Mer
 
 		@Override
 		public boolean canUse() {
-			if (mob.role() != SOLDIER || mob.armyId != 0 || mob.getTarget() != null || mob.random.nextInt(30) != 0) return false;
+			if (mob.role() != SOLDIER || mob.armyId != 0 || mob.hasPost || mob.getTarget() != null || mob.random.nextInt(30) != 0) return false;
 			Realm r = KingdomsMod.realm();
 			Settlement s = r == null ? null : r.settlements.get(mob.settlement);
 			if (s == null) return false;

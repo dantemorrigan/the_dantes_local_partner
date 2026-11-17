@@ -53,7 +53,7 @@ public class KingdomsTest implements FabricClientGameTest {
 			if (!server.computeOnServer(s -> KingdomsMod.realm().seeded && !KingdomsMod.realm().kingdoms.isEmpty())) throw new AssertionError("No kingdoms rose");
 
 			// 2. Time flies: they build, grow, expand.
-			server.runOnServer(s -> KingdomsMod.realm().speed = 20);
+			server.runOnServer(s -> Realm.TIME_SCALE = 300);
 			ctx.waitTicks(20 * 25);
 			log(sp, "after ~250 days");
 
@@ -71,7 +71,7 @@ public class KingdomsTest implements FabricClientGameTest {
 				return c == null ? new int[]{0, 0} : new int[]{c.x, c.z};
 			});
 			ctx.setScreen(() -> null);
-			server.runOnServer(s -> KingdomsMod.realm().speed = 2);
+			server.runOnServer(s -> Realm.TIME_SCALE = 60);
 			server.runCommand("gamemode spectator @p");
 			server.runCommand("tp @p " + (cap[0] - 26) + " 140 " + (cap[1] - 26) + " -45 35");
 			ctx.waitTicks(20 * 6);
@@ -105,7 +105,7 @@ public class KingdomsTest implements FabricClientGameTest {
 					var p = s.getPlayerList().getPlayers().getFirst();
 					GodPowers.act(p, "war", ids.get(0), ids.get(1), 0, 0);
 					GodPowers.act(p, "bless", ids.get(0), 0, 0, 0);
-					KingdomsMod.realm().speed = 10;
+					Realm.TIME_SCALE = 300;
 				});
 			}
 			server.runCommand("gamemode creative @p");
@@ -116,7 +116,7 @@ public class KingdomsTest implements FabricClientGameTest {
 			ctx.takeScreenshot("k4_map_war");
 
 			// 5b. An army in the flesh: soldiers stand in the world, march and besiege.
-			server.runOnServer(s -> KingdomsMod.realm().speed = 2);
+			server.runOnServer(s -> Realm.TIME_SCALE = 60);
 			// Two armies at war meet next to the first kingdom's capital: a real battle.
 			int[] ar = ids.size() < 2 ? null : server.computeOnServer(s -> {
 				Realm r = KingdomsMod.realm();
@@ -135,7 +135,7 @@ public class KingdomsTest implements FabricClientGameTest {
 				GodPowers.act(p, "war", first, second, 0, 0);
 				GodPowers.act(p, "army", first, second, c.x + 24, c.z + 24);
 				GodPowers.act(p, "army", second, first, c.x + 40, c.z + 24);
-				r.speed = 2;
+				Realm.TIME_SCALE = 30;
 				return new int[]{c.x + 30, c.z + 24};
 			});
 			if (ar != null) {

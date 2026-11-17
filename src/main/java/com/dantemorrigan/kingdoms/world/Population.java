@@ -24,6 +24,7 @@ import java.util.Map;
 public final class Population {
 	private static final int NEAR = 112, FAR = 170;
 	private static final Map<Integer, List<CitizenEntity>> TOWNS = new HashMap<>();
+	private static final Map<Settlement.Building, List<CitizenEntity>> ARCHERS = new java.util.IdentityHashMap<>();
 
 	public static void tick(ServerLevel level, Realm realm) {
 		if (level.getGameTime() % 40 != 0) return;
@@ -41,38 +42,85 @@ public final class Population {
 				if (far || k == null || !k.alive || !loaded) continue;
 			}
 			if (!near) continue;
-			int[] want = wanted(realm, k, s);
-			int[] have = new int[5];
-			for (CitizenEntity c : list) have[c.role()]++;
-			have[CitizenEntity.MERCHANT] = (int) list.stream().filter(c -> c.role() == CitizenEntity.MERCHANT).count();
-			for (int role = 4; role >= 0; role--) {
-				if (have[role] < want[role]) {
-					CitizenEntity c = spawn(level, k, s, role);
-					if (c != null) list.add(c);
-					break; // one per pass: they trickle in
+			fill(level, realm, s, k, list, false);
+			archers(level, realm, s, k);
+		}
+	}
+
+	/** Every finished tower has bowmen on its top. */
+	static void archers(ServerLevel level, Realm realm, Settlement s, Kingdom k) {
+		for (Settlement.Building b : s.buildings) {
+			if (b.type != BuildingType.WALL_TOWER) continue;
+			List<CitizenEntity> list = ARCHERS.computeIfAbsent(b, q -> new ArrayList<>());
+			list.removeIf(c -> c.isRemoved() || !c.isAlive());
+			if (!b.done() || b.y == Integer.MIN_VALUE || Constructor.pending(realm, s, b) || b.ruined) {
+				continue;
+			}
+			int want = s.capital && k.era >= 2 ? 2 : 1;
+			while (list.size() < want) {
+				CitizenEntity c = KingdomsMod.CITIZEN.create(level, EntitySpawnReason.EVENT);
+				if (c == null) break;
+				int[] t = Constructor.rotate(5 + list.size() % 2 - (list.size() % 2) , 5, Constructor.rotation(s, b));
+				double x = b.px + t[0] + 0.5, y = b.y + 9, z = b.pz + t[1] + 0.5;
+				c.snapTo(x, y, z, 0f, 0f);
+				c.setup(k, s, CitizenEntity.SOLDIER);
+				c.makeArcher();
+				c.setPost(x, y, z);
+				level.addFreshEntity(c);
+				list.add(c);
+			}
+		}
+	}
+
+	/** A town is lived in at once: everyone it should have, now (for a player who arrives by magic). */
+	public static void populate(ServerLevel level, Realm realm, Settlement s) {
+		Kingdom k = realm.kingdoms.get(s.kingdom);
+		if (k == null || !k.alive || !level.getChunkSource().hasChunk(s.x >> 4, s.z >> 4)) return;
+		List<CitizenEntity> list = TOWNS.computeIfAbsent(s.id, q -> new ArrayList<>());
+		list.removeIf(c -> c.isRemoved() || !c.isAlive());
+		for (int i = 0; i < 40; i++) if (!fill(level, realm, s, k, list, true)) break;
+		archers(level, realm, s, k);
+	}
+
+	/** Brings the town's citizens toward the wanted numbers: one per pass, or all of them. True if someone was added. */
+	static boolean fill(ServerLevel level, Realm realm, Settlement s, Kingdom k, List<CitizenEntity> list, boolean all) {
+		int[] want = wanted(realm, k, s);
+		int[] have = new int[5];
+		for (CitizenEntity c : list) have[c.role()]++;
+		have[CitizenEntity.MERCHANT] = (int) list.stream().filter(c -> c.role() == CitizenEntity.MERCHANT).count();
+		boolean added = false;
+		for (int role = 4; role >= 0; role--) {
+			if (have[role] < want[role]) {
+				CitizenEntity c = spawn(level, k, s, role);
+				if (c != null) {
+					list.add(c);
+					added = true;
 				}
-				if (have[role] > want[role]) {
-					for (CitizenEntity c : list) if (c.role() == role && c.caravanId == 0) {
-						c.discard();
-						break;
-					}
+				if (!all) return added;
+				return added;
+			}
+			if (have[role] > want[role]) {
+				for (CitizenEntity c : list) if (c.role() == role && c.caravanId == 0) {
+					c.discard();
+					break;
 				}
 			}
 		}
+		return added;
 	}
 
 	/** Peasants, builders, soldiers, king, market vendor for a town. */
 	static int[] wanted(Realm realm, Kingdom k, Settlement s) {
 		int towns = Math.max(1, realm.settlementsOf(k.id).size());
 		float share = k.population / towns;
-		int done = 0;
-		boolean building = false;
+		int done = 0, going = 0;
 		for (Settlement.Building b : s.buildings) {
 			if (b.done()) done++;
-			else if (!b.ruined) building = true;
+			else if (!b.ruined) going++;
 		}
 		int peasants = Math.min(9, 1 + (int) (share / 8) + done / 4);
-		int builders = building ? (s.capital ? 2 : 1) : 0;
+		if (s.wall > 0 && s.wallProgress < 1f) going += 2;
+		int builders = going == 0 ? 0 : Math.min(5, 1 + going / 2 + (s.capital ? 1 : 0));
 		int soldiers = Math.min(7, (int) ((k.soldiers + KingdomAI.armySoldiers(realm, k) * 0.2f) / towns / 3) + (s.count(BuildingType.BARRACKS) > 0 ? 1 : 0));
 		boolean keep = false;
 		for (Settlement.Building b : s.buildings) if (b.type == BuildingType.KEEP && b.progress > 0.6f) keep = true;
@@ -113,6 +161,14 @@ public final class Population {
 		}
 		if (!level.getChunkSource().hasChunk(x >> 4, z >> 4)) return null;
 		int y = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
+		if (role == CitizenEntity.BUILDER) {
+			for (Settlement.Building b : s.buildings) {
+				if (!b.done() && !b.ruined && b.y != Integer.MIN_VALUE) {
+					int bxx = b.px + (level.getRandom().nextBoolean() ? 0 : 11), bzz = b.pz + level.getRandom().nextInt(12);
+					return new BlockPos(bxx, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, bxx, bzz), bzz);
+				}
+			}
+		}
 		if (role == CitizenEntity.MERCHANT) {
 			for (Settlement.Building b : s.buildings) {
 				if (b.type == BuildingType.MARKET && b.y != Integer.MIN_VALUE && b.placed > 144) {
@@ -130,6 +186,7 @@ public final class Population {
 
 	public static void clear() {
 		TOWNS.clear();
+		ARCHERS.clear();
 	}
 
 	/** Every living citizen of a town (for god effects). */

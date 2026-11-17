@@ -30,7 +30,6 @@ public final class ClientRealm {
 	public static boolean hasState;
 	public static boolean god;
 	public static long day;
-	public static int speed = 1;
 	/** Bumped whenever ownership changes: the political layer is redrawn. */
 	public static int version;
 	public static long lastChange;
@@ -110,7 +109,7 @@ public final class ClientRealm {
 
 	public static final class AView {
 		public int id, kingdom, target, fighting, mission;
-		public float x, z, px, pz, soldiers;
+		public float x, z, px, pz, soldiers, tx, tz;
 		public long at;
 
 		public float rx(long now, long dayMs) {
@@ -141,7 +140,7 @@ public final class ClientRealm {
 	}
 
 	public static long dayMs() {
-		return speed <= 0 ? 1000 : 1000L / speed;
+		return 1000L; // positions arrive once a second
 	}
 
 	// ------------------------------------------------------------------ packets
@@ -218,16 +217,18 @@ public final class ClientRealm {
 		}
 		god = d.getBooleanOr("god", god);
 		day = d.getLongOr("day", day);
-		speed = d.getIntOr("speed", speed);
-		readKingdoms(d);
-		readTowns(d);
+		boolean light = d.getBooleanOr("light", false);
+		if (!light) {
+			readKingdoms(d);
+			readTowns(d);
+		}
 		readArmies(d, now);
 		readCaravans(d, now);
 		for (Tag t : d.getListOrEmpty("news")) if (t instanceof CompoundTag c) news.add(Chronicle.Entry.load(c));
 		while (news.size() > 120) news.remove(0);
 		newsVersion++;
 		version++;
-		labels();
+		if (!light) labels();
 	}
 
 	static void readKingdoms(CompoundTag d) {
@@ -312,6 +313,8 @@ public final class ClientRealm {
 			a.target = c.getIntOr("tg", 0);
 			a.fighting = c.getIntOr("f", 0);
 			a.mission = c.getIntOr("m", 0);
+			a.tx = c.getFloatOr("tx", a.x);
+			a.tz = c.getFloatOr("tz", a.z);
 			armies.put(id, a);
 		}
 	}

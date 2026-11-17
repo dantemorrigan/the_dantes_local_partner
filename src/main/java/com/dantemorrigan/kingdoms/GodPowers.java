@@ -11,6 +11,7 @@ import com.dantemorrigan.kingdoms.sim.Settlement;
 import com.dantemorrigan.kingdoms.world.CitizenEntity;
 import com.dantemorrigan.kingdoms.world.Constructor;
 import com.dantemorrigan.kingdoms.world.Population;
+import com.dantemorrigan.kingdoms.world.WarZone;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
@@ -23,7 +24,6 @@ import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LightningBolt;
 import net.minecraft.world.entity.Relative;
-import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
@@ -41,7 +41,7 @@ import java.util.UUID;
  * pace of time, and look down on any place of the realm.
  */
 public final class GodPowers {
-	private record Return(GameType mode, Vec3 pos, float yaw, float pitch) {}
+	private record Return(Vec3 pos, float yaw, float pitch) {}
 
 	private static final Map<UUID, Return> OBSERVERS = new HashMap<>();
 
@@ -63,7 +63,6 @@ public final class GodPowers {
 		if (kb != null && !kb.alive) kb = null;
 		int cx = r.cellX(x), cz = r.cellZ(z);
 		switch (action) {
-			case "speed" -> r.speed = Math.max(0, Math.min(20, a));
 			case "found" -> {
 				if (!KingdomAI.goodSite(r, cx, cz)) {
 					p.sendOverlayMessage(Component.translatable("kingdoms.god.bad_site"));
@@ -226,20 +225,49 @@ public final class GodPowers {
 		level.playSound(null, new BlockPos(x, y, z), good ? SoundEvents.PLAYER_LEVELUP : SoundEvents.WITHER_AMBIENT, SoundSource.AMBIENT, 2f, good ? 0.6f : 1.2f);
 	}
 
-	/** Look down on a place as a spirit (spectator), remembering where to come back to. */
+	/**
+	 * Travel to a place as yourself: the land and everything the kingdoms have built around it is loaded and finished
+	 * first, so you arrive in a living country, not in a building site. The game mode is left alone.
+	 */
 	static void observe(ServerPlayer p, ServerLevel level, int x, int z) {
-		OBSERVERS.putIfAbsent(p.getUUID(), new Return(p.gameMode(), p.position(), p.getYRot(), p.getXRot()));
-		p.setGameMode(GameType.SPECTATOR);
-		int y = KingdomAI.heightAt(KingdomsMod.realm(), x, z) + 34;
-		p.teleportTo(level, x + 0.5, y, z - 22.5, Set.<Relative>of(), 0f, 50f, false);
+		Realm r = KingdomsMod.realm();
+		OBSERVERS.putIfAbsent(p.getUUID(), new Return(p.position(), p.getYRot(), p.getXRot()));
+		int tx = x, tz = z;
+		// a town: stand in its street, not inside the keep
+		Settlement near = null;
+		double best = 40;
+		for (Settlement s : r.settlements.values()) {
+			double d = Math.hypot(s.x - x, s.z - z);
+			if (d < best) {
+				best = d;
+				near = s;
+			}
+		}
+		if (near != null) {
+			tx = near.x + 6;
+			tz = near.z + 6;
+		} else {
+			tz = z - 12; // a little way off, not in the middle of the crowd
+		}
+		Constructor.flushAround(level, r, tx, tz, 96);
+		int y = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, tx, tz);
+		// not into water: slide to dry land
+		for (int i = 0; i < 12 && !level.getBlockState(new BlockPos(tx, y - 1, tz)).getFluidState().isEmpty(); i++) {
+			tz += 4;
+			level.getChunk(tx >> 4, tz >> 4);
+			y = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, tx, tz);
+		}
+		p.teleportTo(level, tx + 0.5, y + 0.1, tz + 0.5, Set.<Relative>of(), p.getYRot(), 15f, false);
+		WarZone.tick(level, r, true); // soldiers who stand here are there the moment you arrive
+		effect(level, tx, tz, true);
 	}
 
 	static void leave(ServerPlayer p) {
 		Return ret = OBSERVERS.remove(p.getUUID());
 		if (ret == null) return;
 		ServerLevel level = p.level().getServer().overworld();
+		level.getChunk((int) ret.pos.x >> 4, (int) ret.pos.z >> 4);
 		p.teleportTo(level, ret.pos.x, ret.pos.y, ret.pos.z, Set.<Relative>of(), ret.yaw, ret.pitch, false);
-		p.setGameMode(ret.mode);
 	}
 
 	public static boolean observing(ServerPlayer p) {

@@ -34,7 +34,7 @@ import java.util.Map;
  * progresses while soldiers stand at the walls. Caravans likewise walk as merchants you can trade with.
  */
 public final class WarZone {
-	private static final int RANGE = 170, MAX_PER_ARMY = 18, MAX_TOTAL = 60;
+	private static final int RANGE = 170, MAX_PER_ARMY = 30, MAX_TOTAL = 120;
 	private static final Map<Integer, List<CitizenEntity>> SQUADS = new HashMap<>();
 	private static final Map<Integer, CitizenEntity> MERCHANTS = new HashMap<>();
 	private static final Map<Integer, Boolean> DEPLOYED = new HashMap<>();
@@ -54,7 +54,12 @@ public final class WarZone {
 	}
 
 	public static void tick(ServerLevel level, Realm r) {
-		if (level.getGameTime() % 10 != 0) return;
+		tick(level, r, false);
+	}
+
+	/** {@code force}: right now (a player has just arrived by magic), not at the next beat. */
+	public static void tick(ServerLevel level, Realm r, boolean force) {
+		if (!force && level.getGameTime() % 10 != 0) return;
 		List<ServerPlayer> players = level.players();
 		// armies that no longer exist
 		for (Iterator<Map.Entry<Integer, List<CitizenEntity>>> it = SQUADS.entrySet().iterator(); it.hasNext(); ) {

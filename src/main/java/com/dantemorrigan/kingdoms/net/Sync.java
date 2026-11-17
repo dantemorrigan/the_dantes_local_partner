@@ -69,6 +69,22 @@ public final class Sync {
 		}
 		CompoundTag d = new CompoundTag();
 		d.putBoolean("full", false);
+		cells(r, d);
+		common(r, d);
+		ListTag news = new ListTag();
+		for (int i = r.chronicleSent; i < r.chronicle.size(); i++) news.add(r.chronicle.get(i).save());
+		r.chronicleSent = r.chronicle.size();
+		d.put("news", news);
+		for (UUID id : WATCHERS.keySet()) {
+			ServerPlayer p = server.getPlayerList().getPlayer(id);
+			if (p == null) continue;
+			d.putBoolean("god", GodPowers.allowed(p));
+			KNet.send(p, new KNet.State(d.copy()));
+		}
+	}
+
+	/** The changed cells (owner, claim, siege) since the last packet. */
+	static void cells(Realm r, CompoundTag d) {
 		int n = r.dirtyCells.cardinality();
 		int[] idx = new int[n], own = new int[n], siege = new int[n];
 		int j = 0;
@@ -82,16 +98,23 @@ public final class Sync {
 		d.putIntArray("ci", idx);
 		d.putIntArray("co", own);
 		d.putIntArray("cs", siege);
-		common(r, d);
-		ListTag news = new ListTag();
-		for (int i = r.chronicleSent; i < r.chronicle.size(); i++) news.add(r.chronicle.get(i).save());
-		r.chronicleSent = r.chronicle.size();
-		d.put("news", news);
+	}
+
+	/** Every second: only what moves (armies, caravans, borders under siege). */
+	public static void live(MinecraftServer server, Realm r) {
+		if (WATCHERS.isEmpty()) {
+			r.dirtyCells.clear();
+			return;
+		}
+		CompoundTag d = new CompoundTag();
+		d.putBoolean("full", false);
+		d.putBoolean("light", true);
+		cells(r, d);
+		d.putLong("day", r.day);
+		moving(r, d);
 		for (UUID id : WATCHERS.keySet()) {
 			ServerPlayer p = server.getPlayerList().getPlayer(id);
-			if (p == null) continue;
-			d.putBoolean("god", GodPowers.allowed(p));
-			KNet.send(p, new KNet.State(d.copy()));
+			if (p != null) KNet.send(p, new KNet.State(d.copy()));
 		}
 	}
 
@@ -114,9 +137,29 @@ public final class Sync {
 		return d;
 	}
 
+	static void moving(Realm r, CompoundTag d) {
+		ListTag as = new ListTag();
+		for (Army a : r.armies.values()) as.add(a.save());
+		d.put("armies", as);
+		ListTag cs = new ListTag();
+		for (com.dantemorrigan.kingdoms.sim.Caravan c : r.caravans.values()) {
+			CompoundTag t = new CompoundTag();
+			t.putInt("id", c.id);
+			t.putInt("k", c.kingdom);
+			t.putFloat("x", c.x(Realm.N));
+			t.putFloat("z", c.z(Realm.N));
+			t.putBoolean("ret", c.returning);
+			t.putInt("gt", c.giveType);
+			t.putInt("ga", c.giveAmt);
+			t.putInt("rt", c.getType);
+			t.putInt("ra", c.getAmt);
+			cs.add(t);
+		}
+		d.put("caravans", cs);
+	}
+
 	static void common(Realm r, CompoundTag d) {
 		d.putLong("day", r.day);
-		d.putInt("speed", r.speed);
 		ListTag ks = new ListTag();
 		for (Kingdom k : r.kingdoms.values()) {
 			CompoundTag t = new CompoundTag();
@@ -182,24 +225,7 @@ public final class Sync {
 			ss.add(t);
 		}
 		d.put("towns", ss);
-		ListTag as = new ListTag();
-		for (Army a : r.armies.values()) as.add(a.save());
-		d.put("armies", as);
-		ListTag cs = new ListTag();
-		for (com.dantemorrigan.kingdoms.sim.Caravan c : r.caravans.values()) {
-			CompoundTag t = new CompoundTag();
-			t.putInt("id", c.id);
-			t.putInt("k", c.kingdom);
-			t.putFloat("x", c.x(Realm.N));
-			t.putFloat("z", c.z(Realm.N));
-			t.putBoolean("ret", c.returning);
-			t.putInt("gt", c.giveType);
-			t.putInt("ga", c.giveAmt);
-			t.putInt("rt", c.getType);
-			t.putInt("ra", c.getAmt);
-			cs.add(t);
-		}
-		d.put("caravans", cs);
+		moving(r, d);
 	}
 
 	/** Full state to every watcher (after a divine act). */

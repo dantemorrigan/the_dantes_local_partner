@@ -12,7 +12,7 @@ import net.minecraft.server.level.ServerPlayer;
 
 /**
  * {@code /kingdoms}: list the kingdoms, and every divine act of the map by command (ids from the list).
- * list | speed &lt;n&gt; | god &lt;action&gt; [a] [b] | return
+ * list | god &lt;action&gt; [a] [b] | return
  */
 public final class KingdomCommand {
 	public static void init() {
@@ -21,8 +21,6 @@ public final class KingdomCommand {
 						.executes(ctx -> list(ctx.getSource()))
 						.then(Commands.literal("list").executes(ctx -> list(ctx.getSource())))
 						.then(Commands.literal("return").executes(ctx -> god(ctx.getSource(), "return", 0, 0)))
-						.then(Commands.literal("speed").then(Commands.argument("days", IntegerArgumentType.integer(0, 20))
-								.executes(ctx -> god(ctx.getSource(), "speed", IntegerArgumentType.getInteger(ctx, "days"), 0))))
 						.then(Commands.literal("god").then(Commands.argument("action", StringArgumentType.word())
 								.suggests((ctx, b) -> {
 									for (String s : new String[]{"found", "destroy", "bless", "plague", "smite", "meteor", "war", "peace", "ally",

@@ -9,6 +9,8 @@ import com.dantemorrigan.kingdoms.sim.Terrain;
 import com.dantemorrigan.kingdoms.world.CitizenEntity;
 import com.dantemorrigan.kingdoms.world.Constructor;
 import com.dantemorrigan.kingdoms.world.Population;
+import com.dantemorrigan.kingdoms.world.WallWorks;
+import com.dantemorrigan.kingdoms.world.RoadWorks;
 import com.dantemorrigan.kingdoms.world.WarZone;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.attachment.v1.AttachmentRegistry;
@@ -52,7 +54,8 @@ public final class KingdomsMod implements ModInitializer {
 
 	private static Realm realm;
 	private static MinecraftServer server;
-	private static int dayClock;
+	private static int secondClock;
+	private static float dayFrac;
 
 	public static Identifier id(String path) {
 		return Identifier.fromNamespaceAndPath(NS, path);
@@ -80,6 +83,8 @@ public final class KingdomsMod implements ModInitializer {
 			Sync.clear();
 			Population.clear();
 			WarZone.clear();
+			WallWorks.clear();
+			RoadWorks.clear();
 		});
 		ServerTickEvents.END_SERVER_TICK.register(KingdomsMod::tick);
 		LOG.info("The Dante's Kingdoms ready");
@@ -108,28 +113,47 @@ public final class KingdomsMod implements ModInitializer {
 		if (r == null) return;
 		ServerLevel level = s.overworld();
 		if (!r.seeded && r.autoSeed && r.kingdoms.isEmpty()) {
-			if (KingdomAI.seed(r)) announceNew(s, r);
+			if (KingdomAI.seed(r)) {
+				KingdomAI.history(r, 320); // the kingdoms already have a past when the first player looks
+				announced = r.chronicle.size();
+				r.chronicleSent = r.chronicle.size();
+				LOG.info("Prehistory: day {}, {} kingdoms, {} towns", r.day, r.kingdoms.size(), r.settlements.size());
+			}
 		} else if (!r.seeded) {
 			r.seeded = true;
 		}
-		if (r.speed > 0 && r.terrain != null && r.terrain.ready) {
-			dayClock++;
-			int ticksPerDay = Math.max(1, 20 / r.speed);
-			if (dayClock >= ticksPerDay) {
-				dayClock = 0;
+		if (r.terrain != null && r.terrain.ready && r.seeded) {
+			// real time: once a second the world moves a little, once a day (30 s) the kingdoms decide
+			if (++secondClock >= 20) {
+				secondClock = 0;
+				float dt = Realm.TIME_SCALE / (float) Realm.DAY_SECONDS;
 				try {
-					KingdomAI.day(r);
+					KingdomAI.live(r, dt);
 				} catch (Exception e) {
-					LOG.error("Simulation day failed", e);
+					LOG.error("Realm step failed", e);
+				}
+				dayFrac += dt;
+				boolean newDay = false;
+				while (dayFrac >= 1f) {
+					dayFrac -= 1f;
+					newDay = true;
+					try {
+						KingdomAI.day(r);
+					} catch (Exception e) {
+						LOG.error("Simulation day failed", e);
+					}
 				}
 				announceNew(s, r);
-				Sync.day(s, r);
+				if (newDay) Sync.day(s, r);
+				else Sync.live(s, r);
 			}
 		}
 		Sync.tick(s, r);
 		Constructor.tick(level, r);
 		Population.tick(level, r);
 		WarZone.tick(level, r);
+		WallWorks.tick(level, r);
+		RoadWorks.tick(level, r);
 	}
 
 	private static int announced;

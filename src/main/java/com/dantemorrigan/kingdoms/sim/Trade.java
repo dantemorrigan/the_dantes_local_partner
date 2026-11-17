@@ -11,7 +11,8 @@ import java.util.List;
  * caravan back, or gets it plundered.
  */
 public final class Trade {
-	public static final float SPEED = 1.5f;
+	/** Cells per day on the road (a caravan walks about two blocks a second). */
+	public static final float SPEED = 3.4f;
 
 	static float stock(Kingdom k, int type) {
 		return switch (type) {
@@ -56,7 +57,6 @@ public final class Trade {
 	}
 
 	public static void day(Realm r) {
-		for (Caravan c : new ArrayList<>(r.caravans.values())) move(r, c);
 		for (Kingdom k : r.kingdoms.values()) {
 			if (!k.alive || r.day % 8 != k.id % 8) continue;
 			int active = 0;
@@ -148,7 +148,12 @@ public final class Trade {
 		return path;
 	}
 
-	static void move(Realm r, Caravan c) {
+	/** Caravans walk continuously (dt in days). */
+	public static void live(Realm r, float dt) {
+		for (Caravan c : new ArrayList<>(r.caravans.values())) move(r, c, dt);
+	}
+
+	static void move(Realm r, Caravan c, float dt) {
 		Kingdom k = r.kingdoms.get(c.kingdom);
 		Settlement dest = r.settlements.get(c.returning ? c.from : c.to);
 		Settlement home = r.settlements.get(c.from);
@@ -162,16 +167,15 @@ public final class Trade {
 			c.getAmt = 0;
 		}
 		// plundered by whoever we are at war with, whose land we are crossing
-		if (c.at >= 0 && c.path.length > 0) {
-			int cell = c.path[Math.min(c.path.length - 1, (int) c.at)];
-			int holder = r.owner[cell];
-			Kingdom h = r.kingdoms.get(holder);
-			if (h != null && h.alive && h != k && k.wars.contains(h.id) && r.random.nextFloat() < 0.35f) {
+		if (c.path.length > 0) {
+			int cell = c.path[Math.max(0, Math.min(c.path.length - 1, (int) c.at))];
+			Kingdom h = r.kingdoms.get((int) r.owner[cell]);
+			if (h != null && h.alive && h != k && k.wars.contains(h.id) && r.random.nextFloat() < 1f - Math.pow(0.65f, dt)) {
 				lose(r, c, h);
 				return;
 			}
 		}
-		float sp = c.observed ? SPEED * 0.16f : SPEED;
+		float sp = SPEED * dt * r.roadBoost(c.x(Realm.N) - 0.5f, c.z(Realm.N) - 0.5f);
 		c.at += c.returning ? -sp : sp;
 		if (!c.returning && c.at >= c.path.length - 1) {
 			c.at = c.path.length - 1;

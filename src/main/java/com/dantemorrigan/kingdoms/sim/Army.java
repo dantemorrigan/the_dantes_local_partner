@@ -17,6 +17,12 @@ public final class Army {
 	public int mission;
 	/** Set by the world each tick while the army has living soldiers in the world: real fighting replaces the arithmetic. */
 	public transient boolean observed;
+	/** Route over land (cell indices) and the next waypoint on it. */
+	public transient int[] path;
+	public transient int pi;
+	/** Ordered home: it merges back into the kingdom on arrival. */
+	public transient boolean home;
+	public transient long thought, lastLog;
 	/** 0..1: share of the soldiers in the world that stand at the objective (a siege only advances with soldiers there). */
 	public transient float pressure = 1f;
 	/** Soldiers killed in the world since the last simulated day (for the map). */

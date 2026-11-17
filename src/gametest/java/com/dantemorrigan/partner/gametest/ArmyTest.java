@@ -23,7 +23,7 @@ public class ArmyTest implements FabricClientGameTest {
 			server.runCommand("time set noon");
 			server.runCommand("difficulty peaceful");
 			for (int i = 0; i < 20 * 120 && !server.computeOnServer(s -> KingdomsMod.realm() != null && KingdomsMod.realm().seeded); i += 20) ctx.waitTicks(20);
-			server.runOnServer(s -> KingdomsMod.realm().speed = 20);
+			server.runOnServer(s -> Realm.TIME_SCALE = 300);
 			ctx.waitTicks(20 * 6);
 			List<Integer> ids = server.computeOnServer(s -> {
 				List<Integer> l = new ArrayList<>();
@@ -48,7 +48,7 @@ public class ArmyTest implements FabricClientGameTest {
 				GodPowers.act(p, "war", first, second, 0, 0);
 				GodPowers.act(p, "army", first, second, c.x + 24, c.z + 24);
 				GodPowers.act(p, "army", second, first, c.x + 40, c.z + 24);
-				r.speed = 2;
+				Realm.TIME_SCALE = 30;
 				return new int[]{c.x + 30, c.z + 24};
 			});
 			if (ar != null) {

@@ -46,7 +46,7 @@ public final class Constructor {
 			int dye = k != null ? k.dye : 7;
 			for (Settlement.Building b : s.buildings) {
 				if (budget <= 0) break;
-				budget -= step(level, realm, s, b, dye, players, budget);
+				budget -= step(level, realm, s, b, dye, players, budget, false);
 			}
 		}
 	}
@@ -84,8 +84,30 @@ public final class Constructor {
 		return true;
 	}
 
-	/** Places blocks for one building; returns how many it placed. */
-	static int step(ServerLevel level, Realm realm, Settlement s, Settlement.Building b, int dye, List<ServerPlayer> players, int budget) {
+	/** Builders of this town standing at the building's plot. */
+	static int crew(Settlement s, Settlement.Building b) {
+		int n = 0;
+		double cx = b.px + 6, cz = b.pz + 6;
+		for (CitizenEntity c : Population.of(s.id)) {
+			if (c.role() == CitizenEntity.BUILDER && c.isAlive() && Math.abs(c.getX() - cx) < 22 && Math.abs(c.getZ() - cz) < 22) n++;
+		}
+		return n;
+	}
+
+	/** Blocks of a building the simulation says exist (everything, for a building that stands; the finished share of a new one). */
+	public static boolean pending(Realm realm, Settlement s, Settlement.Building b) {
+		if (b.ruined) return false;
+		if (!b.done()) return true;
+		Kingdom k = realm.kingdoms.get(s.kingdom);
+		return b.placed < PREP + blueprint(b, k == null ? 7 : k.dye).size();
+	}
+
+	/**
+	 * Places blocks for one building; returns how many it placed. A building that stands in the simulation appears at
+	 * once when its chunks are there (the world was lived in before anyone looked). Only the last stretch of a building
+	 * that is still going up is built in front of the player's eyes, and only where builders are working.
+	 */
+	static int step(ServerLevel level, Realm realm, Settlement s, Settlement.Building b, int dye, List<ServerPlayer> players, int budget, boolean force) {
 		Blueprint bp = blueprint(b, dye);
 		int total = PREP + bp.size();
 		int target = b.ruined ? b.placed : PREP + (int) Math.floor(b.progress * bp.size());
@@ -93,20 +115,29 @@ public final class Constructor {
 		if (b.placed >= target && !flagsStale) return 0;
 		if (!loaded(level, b)) return 0;
 		if (b.y == Integer.MIN_VALUE) b.y = ground(level, b);
-		boolean watched = near(players, b.px + 6, b.pz + 6, 40);
-		int limit = Math.min(budget, watched ? 3 : 160);
+		boolean zone = !force && near(players, b.px + 6, b.pz + 6, 80);
+		boolean fresh = !b.done() || realm.day - b.doneDay <= 1;
+		boolean live = zone && fresh;
+		int window = Math.max(60, (int) (1.5f / b.type.days * bp.size()));
+		int instantTo = live ? target - window : target;
+		int crew = live ? crew(s, b) : 0;
 		Rotation rot = rotation(s, b);
-		int done = 0;
-		while (b.placed < target && done < limit) {
+		int done = 0, gated = 0;
+		int cap = force ? Integer.MAX_VALUE : budget;
+		while (b.placed < target && done < cap) {
+			boolean needsCrew = live && b.placed >= instantTo;
+			if (needsCrew && (crew == 0 || gated >= crew * 3)) break;
 			if (b.placed < PREP) {
 				prepColumn(level, realm, b, b.placed);
 				done += 4;
 			} else {
 				Blueprint.Entry e = bp.entries().get(b.placed - PREP);
-				place(level, b, e, rot, watched);
+				place(level, b, e, rot, needsCrew);
 				done++;
 			}
+			if (needsCrew) gated++;
 			b.placed++;
+			if (!force && !needsCrew && done >= 400) break;
 		}
 		if (b.placed >= total && b.done()) {
 			if (b.flagDye != dye) {
@@ -115,6 +146,26 @@ public final class Constructor {
 			}
 		}
 		return done;
+	}
+
+	/**
+	 * Everything the simulation says stands within {@code radius} blocks of (x, z) is put into the world right now,
+	 * loading the chunks (the player is about to arrive there). The kingdom must look lived in, not under construction.
+	 */
+	public static void flushAround(ServerLevel level, Realm realm, int x, int z, int radius) {
+		int r = radius + 40;
+		for (int cx = (x - r) >> 4; cx <= (x + r) >> 4; cx++) for (int cz = (z - r) >> 4; cz <= (z + r) >> 4; cz++) level.getChunk(cx, cz);
+		for (Settlement s : realm.settlements.values()) {
+			if (Math.abs(s.x - x) > r || Math.abs(s.z - z) > r) continue;
+			Kingdom k = realm.kingdoms.get(s.kingdom);
+			int dye = k != null ? k.dye : 7;
+			for (Settlement.Building b : s.buildings) step(level, realm, s, b, dye, List.of(), 0, true);
+		}
+		WallWorks.flush(level, realm, x, z, r);
+		RoadWorks.flush(level, realm, x, z, r);
+		for (Settlement s : realm.settlements.values()) {
+			if (Math.abs(s.x - x) <= r && Math.abs(s.z - z) <= r) Population.populate(level, realm, s);
+		}
 	}
 
 	static void place(ServerLevel level, Settlement.Building b, Blueprint.Entry e, Rotation rot, boolean watched) {

@@ -20,6 +20,39 @@ public final class Settlement {
 	/** Next spiral index for a plot. */
 	public int nextPlot = 1;
 	public float garrison;
+	/** Town wall: 0 none, else style (age) + 1. Built column by column around the town along a square ring. */
+	public int wall;
+	public float wallProgress;
+	public long wallDoneDay;
+	public long[] wallBits = new long[7];
+	/** Half-size of the wall square, in blocks: it encloses the farthest plot of a town. */
+	public static final int WALL_R = 52;
+	public static final int WALL_LEN = WALL_R * 8;
+
+	/** Block position of wall column i (0..WALL_LEN-1), walking the square clockwise from the north-west corner. */
+	public int[] wallPos(int i) {
+		int side = i / (WALL_R * 2), pos = i % (WALL_R * 2);
+		return switch (side) {
+			case 0 -> new int[]{x - WALL_R + pos, z - WALL_R};
+			case 1 -> new int[]{x + WALL_R, z - WALL_R + pos};
+			case 2 -> new int[]{x + WALL_R - pos, z + WALL_R};
+			default -> new int[]{x - WALL_R, z + WALL_R - pos};
+		};
+	}
+
+	public boolean wallBit(int i) {
+		return (wallBits[i >> 6] >>> (i & 63) & 1L) != 0;
+	}
+
+	public void setWallBit(int i) {
+		wallBits[i >> 6] |= 1L << (i & 63);
+	}
+
+	/** Gate gaps: seven columns around the middle of each side. */
+	public static boolean gate(int i) {
+		int pos = i % (WALL_R * 2);
+		return Math.abs(pos - WALL_R) <= 3;
+	}
 
 	public Settlement(int id, int kingdom, int[] name, int x, int z, boolean capital) {
 		this.id = id;
@@ -71,6 +104,10 @@ public final class Settlement {
 		t.putBoolean("cap", capital);
 		t.putInt("next", nextPlot);
 		t.putFloat("gar", garrison);
+		t.putInt("wall", wall);
+		t.putFloat("wallp", wallProgress);
+		t.putLong("walld", wallDoneDay);
+		t.putLongArray("wallb", wallBits);
 		ListTag list = new ListTag();
 		for (Building b : buildings) list.add(b.save());
 		t.put("b", list);
@@ -82,6 +119,11 @@ public final class Settlement {
 				t.getIntOr("x", 0), t.getIntOr("z", 0), t.getBooleanOr("cap", false));
 		s.nextPlot = t.getIntOr("next", 1);
 		s.garrison = t.getFloatOr("gar", 0);
+		s.wall = t.getIntOr("wall", 0);
+		s.wallProgress = t.getFloatOr("wallp", 0);
+		s.wallDoneDay = t.getLongOr("walld", 0);
+		long[] wb = t.getLongArray("wallb").orElse(new long[7]);
+		System.arraycopy(wb, 0, s.wallBits, 0, Math.min(wb.length, 7));
 		for (Tag b : t.getListOrEmpty("b")) if (b instanceof CompoundTag c) s.buildings.add(Building.load(c));
 		return s;
 	}
@@ -91,7 +133,9 @@ public final class Settlement {
 		public final BuildingType type;
 		public final int px, pz;
 		/** Style (era) it was started in: a town keeps a history of its ages. */
-		public final int style;
+		public int style;
+		/** Simulation day it was completed (a fresh building is still being finished by builders; older ones simply stand). */
+		public long doneDay;
 		public float progress;
 		/** Base height once placed in the world (Integer.MIN_VALUE: not yet touched in the world). */
 		public int y = Integer.MIN_VALUE;
@@ -123,6 +167,7 @@ public final class Settlement {
 			t.putInt("pl", placed);
 			t.putInt("fd", flagDye);
 			t.putBoolean("r", ruined);
+			t.putLong("dd", doneDay);
 			return t;
 		}
 
@@ -133,6 +178,7 @@ public final class Settlement {
 			b.placed = t.getIntOr("pl", 0);
 			b.flagDye = t.getIntOr("fd", -1);
 			b.ruined = t.getBooleanOr("r", false);
+			b.doneDay = t.getLongOr("dd", 0);
 			return b;
 		}
 	}

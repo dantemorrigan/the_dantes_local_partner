@@ -21,6 +21,10 @@ public final class Realm {
 	public static final int N = 160;
 	public static final int CELL = 16;
 	public static final int DAYS_PER_YEAR = 48;
+	/** One day of the realm lasts this many real seconds. Time does not speed up: it is a world, not a game of waiting. */
+	public static final int DAY_SECONDS = 30;
+	/** Tests only (never saved, no UI): how many times faster than real time the realm runs. */
+	public static int TIME_SCALE = 1;
 
 	/** Block coordinates of the north-west corner of cell (0,0). */
 	public int originX, originZ;
@@ -30,17 +34,21 @@ public final class Realm {
 	/** Siege: who besieges this cell and how far (0..100). */
 	public final short[] siegeBy = new short[N * N];
 	public final byte[] siege = new byte[N * N];
+	/** The siege in fractions (the byte array is what is saved and sent). */
+	public final transient float[] siegeF = new float[N * N];
 
 	public final Map<Integer, Kingdom> kingdoms = new LinkedHashMap<>();
 	public final Map<Integer, Settlement> settlements = new LinkedHashMap<>();
 	public final Map<Integer, Army> armies = new LinkedHashMap<>();
 	public final Map<Integer, Caravan> caravans = new LinkedHashMap<>();
+	public final Map<Integer, Road> roads = new LinkedHashMap<>();
+	/** Best finished road level + 1 over each cell (0: none): roads speed up marches and caravans. */
+	public final transient byte[] roadLevel = new byte[N * N];
+	public transient int roadVersion;
 	public final List<Chronicle.Entry> chronicle = new ArrayList<>();
 	public int nextId = 1;
 	public long day;
 	public boolean seeded;
-	/** Simulation days per second: 0 paused, 1, 2, 5, 10. */
-	public int speed = 1;
 	/** Bring kingdoms to life automatically on a new world. */
 	public boolean autoSeed = true;
 
@@ -118,10 +126,16 @@ public final class Realm {
 	}
 
 	public void setSiege(int i, int by, int value) {
+		setSiegeF(i, by, value);
+	}
+
+	public void setSiegeF(int i, int by, float value) {
 		value = Math.max(0, Math.min(100, value));
-		if (siege[i] == value && siegeBy[i] == by) return;
-		siege[i] = (byte) value;
-		siegeBy[i] = (short) (value == 0 ? 0 : by);
+		siegeF[i] = value;
+		int v = (int) value;
+		if (siege[i] == v && siegeBy[i] == (v == 0 ? 0 : by)) return;
+		siege[i] = (byte) v;
+		siegeBy[i] = (short) (v == 0 ? 0 : by);
 		dirtyCells.set(i);
 	}
 
@@ -159,6 +173,24 @@ public final class Realm {
 		}
 	}
 
+	/** Recomputes which cells a finished (or well advanced) road crosses. */
+	public void rebuildRoads() {
+		java.util.Arrays.fill(roadLevel, (byte) 0);
+		for (Road ro : roads.values()) {
+			if (ro.progress < 0.95f) continue;
+			for (int c : ro.cells) roadLevel[c] = (byte) Math.max(roadLevel[c], ro.level + 1);
+		}
+		roadVersion++;
+	}
+
+	/** Travel speed factor on a cell: a road makes armies and caravans faster. */
+	public float roadBoost(float cx, float cz) {
+		int x = (int) Math.floor(cx), z = (int) Math.floor(cz);
+		if (!inside(x, z)) return 1f;
+		int l = roadLevel[idx(x, z)];
+		return l == 0 ? 1f : 1.25f + 0.2f * l;
+	}
+
 	// --- chronicle ---
 
 	public void log(int level, int x, int z, String key, String... args) {
@@ -193,7 +225,6 @@ public final class Realm {
 		t.putInt("next", nextId);
 		t.putLong("day", day);
 		t.putBoolean("seeded", seeded);
-		t.putInt("speed", speed);
 		t.putBoolean("auto", autoSeed);
 		ListTag ks = new ListTag();
 		for (Kingdom k : kingdoms.values()) ks.add(k.save());
@@ -204,6 +235,9 @@ public final class Realm {
 		ListTag as = new ListTag();
 		for (Army a : armies.values()) as.add(a.save());
 		t.put("armies", as);
+		ListTag rd = new ListTag();
+		for (Road ro : roads.values()) rd.add(ro.save());
+		t.put("roads", rd);
 		ListTag cv = new ListTag();
 		for (Caravan c : caravans.values()) cv.add(c.save());
 		t.put("caravans", cv);
@@ -226,7 +260,6 @@ public final class Realm {
 		r.nextId = t.getIntOr("next", 1);
 		r.day = t.getLongOr("day", 0);
 		r.seeded = t.getBooleanOr("seeded", false);
-		r.speed = t.getIntOr("speed", 1);
 		r.autoSeed = t.getBooleanOr("auto", true);
 		for (Tag k : t.getListOrEmpty("kingdoms")) if (k instanceof CompoundTag c) {
 			Kingdom kd = Kingdom.load(c);
@@ -240,12 +273,18 @@ public final class Realm {
 			Army ar = Army.load(c);
 			r.armies.put(ar.id, ar);
 		}
+		for (Tag c : t.getListOrEmpty("roads")) if (c instanceof CompoundTag ct) {
+			Road ro = Road.load(ct);
+			r.roads.put(ro.id, ro);
+		}
+		r.rebuildRoads();
 		for (Tag c : t.getListOrEmpty("caravans")) if (c instanceof CompoundTag ct) {
 			Caravan cv = Caravan.load(ct);
 			r.caravans.put(cv.id, cv);
 		}
 		for (Tag e : t.getListOrEmpty("chronicle")) if (e instanceof CompoundTag c) r.chronicle.add(Chronicle.Entry.load(c));
 		r.chronicleSent = r.chronicle.size();
+		for (int i = 0; i < r.siege.length; i++) r.siegeF[i] = r.siege[i] & 0xFF;
 		r.recount();
 		return r;
 	}

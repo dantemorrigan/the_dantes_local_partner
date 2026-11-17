@@ -19,10 +19,15 @@ public enum BuildingType {
 	SMITHY(Era.FEUDAL,           14,   18,   6,   4,   9,  0,    0,    0,    0,    0,    0.1f, 0),
 	MARKET(Era.FEUDAL,           20,    8,   0,   6,   8,  0,    0,    0,    0,    1.0f, 0.1f, 0),
 	TEMPLE(Era.FEUDAL,           18,   26,   0,  14,  14,  0,    0,    0,    0,    0,    0.3f, 0),
-	WALL_TOWER(Era.CASTLE,        6,   30,   2,   4,   9,  0,    0,    0,    0,    0,    0,    0),
+	WALL_TOWER(Era.TRIBAL,        8,    2,   0,   0,   5,  0,    0,    0,    0,    0,    0,    0),
 	LIBRARY(Era.CASTLE,          26,   20,   0,  16,  12,  0,    0,    0,    0,    0,    1.2f, 0),
 	WORKSHOP(Era.RENAISSANCE,    24,   30,  10,  12,  12,  0,    0.5f, 0.5f, 0.4f, 0.4f, 0.4f, 0),
-	FACTORY(Era.INDUSTRIAL,      20,   60,  30,  30,  18,  0,    0,    0,    1.2f, 1.2f, 0.6f, 0);
+	FACTORY(Era.INDUSTRIAL,      20,   60,  30,  30,  18,  0,    0,    0,    1.2f, 1.2f, 0.6f, 0),
+	WINDMILL(Era.FEUDAL,         20,    8,   0,   4,   8,  2.4f, 0,    0,    0,    0,    0,    0),
+	SAWMILL(Era.CASTLE,          16,   12,   2,   6,   9,  0,    2.8f, 0,    0,    0,    0,    0),
+	FOUNDRY(Era.RENAISSANCE,     20,   40,   8,  14,  12,  0,    0,    0.8f, 2.0f, 0.5f, 0.2f, 0),
+	UNIVERSITY(Era.RENAISSANCE,  26,   40,   0,  30,  14,  0,    0,    0,    0,    0.5f, 2.4f, 0),
+	STATION(Era.INDUSTRIAL,      30,   50,  20,  40,  14,  0,    0,    0,    0.5f, 3.0f, 0.6f, 0);
 
 	public final Era era;
 	public final int wood, stone, iron, gold, days;

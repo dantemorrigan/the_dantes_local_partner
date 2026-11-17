@@ -51,6 +51,9 @@ public final class MapScreen extends Screen {
 	private static float zoom = 6f;
 	private static int selected;
 	private static int selectedTown;
+	private static int selectedArmy;
+	/** A place picked from the chronicle: block x, z. */
+	private static int[] pin;
 	private static MapTextures.Mode mode = MapTextures.Mode.POLITICAL;
 	private static Tool tool = Tool.SELECT;
 	static boolean observing;
@@ -289,6 +292,11 @@ public final class MapScreen extends Screen {
 			ClientRealm.KView k = ClientRealm.kingdom(a.kingdom);
 			if (k == null) continue;
 			float x = sx(a.rx(now, dayMs)), y = sy(a.rz(now, dayMs));
+			if (a.mission == 0 && (Math.abs(a.tx - a.x) > 0.3f || Math.abs(a.tz - a.z) > 0.3f) && zoom >= 2.5f) {
+				dotted(g, x, y, sx(a.tx), sy(a.tz), MapTextures.withAlpha(k.color(), 0xDD), true);
+				int ex = (int) sx(a.tx), ey = (int) sy(a.tz);
+				g.outline(ex - 3, ey - 3, 7, 7, 0xFF000000 | k.color());
+			}
 			float size = Math.max(10, Math.min(20, zoom * 1.3f));
 			g.fill((int) (x - size / 2), (int) (y + size / 2 - 3), (int) (x + size / 2), (int) (y + size / 2), 0x88000000);
 			g.fill((int) (x - size * 0.35f), (int) (y - size * 0.45f), (int) (x + size * 0.45f), (int) (y + size * 0.05f), 0xFF000000 | k.color());
@@ -351,7 +359,7 @@ public final class MapScreen extends Screen {
 	// ------------------------------------------------------------------ chrome (command-bar layout)
 
 	private static int topRightWidth() {
-		return 18 * 9 + 12 + 14 + 62;
+		return 18 * 4 + 6 + 62 + 10;
 	}
 
 	private void topRight(GuiGraphicsExtractor g, int mx, int my) {
@@ -362,19 +370,7 @@ public final class MapScreen extends Screen {
 		int season = (int) (ClientRealm.day % Realm.DAYS_PER_YEAR) * 4 / Realm.DAYS_PER_YEAR;
 		Component date = Component.translatable("kingdoms.map.date", year, Component.translatable("kingdoms.season." + season));
 		Ui2.fit(g, font, date, x0 + 6, 9, 60, GOLD, 0.9f);
-		int x = x0 + 68;
-		int[] speeds = {0, 1, 2, 5, 10};
-		String[] sIcons = {"pause", "speed1", "speed2", "speed3", "speed3"};
-		for (int i = 0; i < speeds.length; i++) {
-			int sp = speeds[i];
-			button(g, x, 4, 18, 18, sIcons[i], null, ClientRealm.speed == sp, mx, my, () -> {
-				if (ClientRealm.god) god("speed", sp, 0, 0, 0);
-			});
-			if (i == 4) g.text(font, "×10", x + 2, 13, TEXT, true);
-			if (Ui2.inside(mx, my, x, 4, 18, 18)) tooltip(g, Component.translatable("kingdoms.map.speed", sp), mx, my);
-			x += 18;
-		}
-		x += 6;
+		int x = x0 + 70;
 		MapTextures.Mode[] modes = MapTextures.Mode.values();
 		String[] layerIcons = {"layer_political", "layer_terrain", "layer_diplomacy"};
 		for (int i = 0; i < modes.length; i++) {
@@ -457,17 +453,20 @@ public final class MapScreen extends Screen {
 		}
 		selected = id;
 		selectedTown = 0;
+		selectedArmy = 0;
+		pin = null;
 	}
 
 	private void commandBar(GuiGraphicsExtractor g, int mx, int my) {
 		int y0 = mapY2;
+		buttons.add(new Btn(0, y0, width, BAR, () -> {})); // the bar swallows clicks (registered first, so its own buttons win)
 		frame(g, "bar", 0, y0, width, BAR);
 		// --- minimap
 		int ms = BAR - 14, mxp = 7, myp = y0 + 7;
 		frame(g, "slot", mxp - 3, myp - 3, ms + 6, ms + 6);
 		minimap(g, mxp, myp, ms, mx, my);
 		// --- command grid
-		int cols = 5, bs = 22, gap = 2, gw = cols * (bs + gap) - gap, gx = width - gw - 9, gy = y0 + 8;
+		int cols = 6, bs = 22, gap = 2, gw = cols * (bs + gap) - gap, gx = width - gw - 9, gy = y0 + 8;
 		frame(g, "slot", gx - 4, gy - 4, gw + 8, 3 * (bs + gap) - gap + 8);
 		commands(g, gx, gy, bs, gap, cols, mx, my);
 		// --- information panel
@@ -476,7 +475,6 @@ public final class MapScreen extends Screen {
 			frame(g, "slot", ix, y0 + 5, iw, BAR - 10);
 			infoPanel(g, ix + 5, y0 + 9, iw - 10, BAR - 18, mx, my);
 		}
-		buttons.add(new Btn(0, y0, width, BAR, () -> {})); // the bar swallows clicks
 	}
 
 	private void minimap(GuiGraphicsExtractor g, int x, int y, int size, int mx, int my) {
@@ -526,11 +524,13 @@ public final class MapScreen extends Screen {
 	}
 
 	private void commands(GuiGraphicsExtractor g, int x0, int y0, int bs, int gap, int cols, int mx, int my) {
+		boolean anyArmy = !ClientRealm.armies.isEmpty();
 		boolean god = ClientRealm.god, kingdom = selected != 0 && ClientRealm.kingdom(selected) != null && ClientRealm.kingdom(selected).alive;
 		record Cmd(String id, String icon, boolean needsGod, boolean needsKingdom, boolean danger, Runnable run, boolean active) {}
 		int sel = selected;
 		List<Cmd> cmds = new ArrayList<>();
 		cmds.add(new Cmd("select", "select", false, false, false, () -> tool = Tool.SELECT, tool == Tool.SELECT));
+		cmds.add(new Cmd("battle", "battle", false, false, false, this::goToBattle, false));
 		cmds.add(new Cmd("observe", "observe", false, false, false, () -> tool = tool == Tool.OBSERVE ? Tool.SELECT : Tool.OBSERVE, tool == Tool.OBSERVE));
 		cmds.add(new Cmd("found", "found", true, false, false, () -> tool = tool == Tool.FOUND ? Tool.SELECT : Tool.FOUND, tool == Tool.FOUND));
 		cmds.add(new Cmd("smite", "smite", true, false, false, () -> tool = tool == Tool.SMITE ? Tool.SELECT : Tool.SMITE, tool == Tool.SMITE));
@@ -554,7 +554,7 @@ public final class MapScreen extends Screen {
 		for (int i = 0; i < cmds.size(); i++) {
 			Cmd c = cmds.get(i);
 			int x = x0 + (i % cols) * (bs + gap), y = y0 + (i / cols) * (bs + gap);
-			boolean enabled = (!c.needsGod || god) && (!c.needsKingdom || kingdom);
+			boolean enabled = (!c.needsGod || god) && (!c.needsKingdom || kingdom) && (!c.id.equals("battle") || anyArmy);
 			boolean hover = Ui2.inside(mx, my, x, y, bs, bs);
 			frame(g, c.active ? "button_active" : c.danger && enabled ? "button_danger" : hover && enabled ? "button_hover" : "button", x, y, bs, bs);
 			icon(g, c.icon, x + 3, y + 3, bs - 6);
@@ -565,7 +565,7 @@ public final class MapScreen extends Screen {
 				List<Component> lines = new ArrayList<>();
 				lines.add(Component.translatable("kingdoms.cmd." + c.id).withColor(GOLD));
 				lines.add(Component.translatable(confirm ? "kingdoms.god.destroy_confirm" : "kingdoms.cmd." + c.id + ".tip").withColor(confirm ? RED : MUTED));
-				if (!enabled) lines.add(Component.translatable(c.needsGod && !god ? "kingdoms.god.denied" : "kingdoms.cmd.need_kingdom").withColor(RED));
+				if (!enabled) lines.add(Component.translatable(c.id.equals("battle") ? "kingdoms.cmd.no_army" : c.needsGod && !god ? "kingdoms.god.denied" : "kingdoms.cmd.need_kingdom").withColor(RED));
 				tip = lines;
 			}
 		}
@@ -580,10 +580,70 @@ public final class MapScreen extends Screen {
 
 	private List<Component> tip;
 
+	/** To the fiercest fight of the realm (or, failing that, the biggest army): you arrive among the soldiers. */
+	private void goToBattle() {
+		ClientRealm.AView best = null;
+		for (ClientRealm.AView a : ClientRealm.armies.values()) {
+			boolean fa = a.fighting > 0, fb = best != null && best.fighting > 0;
+			if (best == null || (fa && !fb) || (fa == fb && a.soldiers > best.soldiers)) best = a;
+		}
+		if (best == null) return;
+		teleportTo(blockX(best.x), blockZ(best.z));
+	}
+
+	private void teleportTo(int x, int z) {
+		god("observe", 0, 0, x, z);
+		observing = true;
+		tool = Tool.SELECT;
+		onClose();
+	}
+
+	private void armyInfo(GuiGraphicsExtractor g, ClientRealm.AView a, int x, int y, int w, int h) {
+		ClientRealm.KView k = ClientRealm.kingdom(a.kingdom);
+		frame(g, "slot", x, y, 46, 46);
+		if (k != null) g.fill(x + 3, y + 3, x + 43, y + 43, MapTextures.withAlpha(k.color(), 150));
+		icon(g, a.mission == 1 ? "patrol" : a.mission == 2 ? "soldier" : "army", x + 5, y + 5, 36);
+		Ui2.fit(g, font, Component.translatable("kingdoms.map.army." + a.mission), x + 52, y, w - 160, TEXT);
+		if (k != null) Ui2.fit(g, font, k.title().copy().withColor(k.color()), x + 52, y + 10, w - 160, MUTED, 0.85f);
+		Ui2.fit(g, font, Component.translatable("kingdoms.map.army_size", Math.round(a.soldiers)), x + 52, y + 21, w - 160, TEXT, 0.85f);
+		ClientRealm.KView enemy = ClientRealm.kingdom(a.target);
+		Component status = a.fighting > 0 ? Component.translatable("kingdoms.map.in_battle").withColor(RED)
+				: a.mission == 0 && enemy != null ? Component.translatable("kingdoms.map.marching_on", enemy.shortName()).withColor(GOLD)
+				: Component.translatable("kingdoms.map.army_idle").withColor(MUTED);
+		Ui2.fit(g, font, status, x + 52, y + 32, w - 160, TEXT, 0.85f);
+		int bw = 140;
+		button(g, x + w - bw - 2, y + 4, bw, 18, "observe", Component.translatable("kingdoms.map.tp_army"), false, mx(), my(), () -> teleportTo(blockX(a.x), blockZ(a.z)));
+	}
+
+	private void pinInfo(GuiGraphicsExtractor g, int[] p, int x, int y, int w, int h) {
+		icon(g, "observe", x, y, 32);
+		Ui2.fit(g, font, Component.translatable("kingdoms.map.place"), x + 38, y, w - 190, GOLD);
+		Ui2.fit(g, font, Component.literal("X " + p[0] + "  Z " + p[1]), x + 38, y + 11, w - 190, MUTED, 0.9f);
+		int bw = 140;
+		button(g, x + w - bw - 2, y + 4, bw, 18, "observe", Component.translatable("kingdoms.map.tp_here"), false, mx(), my(), () -> teleportTo(p[0], p[1]));
+	}
+
+	private int mx() {
+		return (int) Minecraft.getInstance().mouseHandler.getScaledXPos(Minecraft.getInstance().getWindow());
+	}
+
+	private int my() {
+		return (int) Minecraft.getInstance().mouseHandler.getScaledYPos(Minecraft.getInstance().getWindow());
+	}
+
 	private void infoPanel(GuiGraphicsExtractor g, int x, int y, int w, int h, int mx, int my) {
 		ClientRealm.TView town = null;
 		for (ClientRealm.TView t : ClientRealm.towns) if (t.id() == selectedTown) town = t;
 		ClientRealm.KView k = ClientRealm.kingdom(selected);
+		ClientRealm.AView army = ClientRealm.armies.get(selectedArmy);
+		if (army != null) {
+			armyInfo(g, army, x, y, w, h);
+			return;
+		}
+		if (pin != null && k == null && town == null) {
+			pinInfo(g, pin, x, y, w, h);
+			return;
+		}
 		if (town != null) {
 			townInfo(g, town, x, y, w, h);
 			return;
@@ -710,6 +770,10 @@ public final class MapScreen extends Screen {
 					camX = ClientRealm.cellX(ex);
 					camZ = ClientRealm.cellZ(ez);
 					zoom = Math.max(zoom, 8);
+					pin = new int[]{ex, ez};
+					selected = 0;
+					selectedTown = 0;
+					selectedArmy = 0;
 				}));
 			}
 			y += h + 1;
@@ -881,6 +945,19 @@ public final class MapScreen extends Screen {
 		int cxi = (int) Math.floor(fx), czi = (int) Math.floor(fz);
 		switch (tool) {
 			case SELECT -> {
+				long nowMs = System.currentTimeMillis();
+				for (ClientRealm.AView a : ClientRealm.armies.values()) {
+					float x = sx(a.rx(nowMs, ClientRealm.dayMs())), y = sy(a.rz(nowMs, ClientRealm.dayMs()));
+					if (Math.abs(mx - x) < 10 && Math.abs(my - y) < 10 && picking == null) {
+						selectedArmy = a.id;
+						selected = a.kingdom;
+						selectedTown = 0;
+						pin = null;
+						return;
+					}
+				}
+				selectedArmy = 0;
+				pin = null;
 				for (ClientRealm.TView t : ClientRealm.towns) {
 					float x = sx(ClientRealm.cellX(t.x())), y = sy(ClientRealm.cellZ(t.z()));
 					if (Math.abs(mx - x) < 9 && Math.abs(my - y) < 9 && picking == null) {
@@ -935,14 +1012,8 @@ public final class MapScreen extends Screen {
 			case GLFW.GLFW_KEY_EQUAL, GLFW.GLFW_KEY_KP_ADD -> zoom *= 1.25f;
 			case GLFW.GLFW_KEY_MINUS, GLFW.GLFW_KEY_KP_SUBTRACT -> zoom /= 1.25f;
 			case GLFW.GLFW_KEY_H -> centerOnPlayer();
+			case GLFW.GLFW_KEY_B -> goToBattle();
 			case GLFW.GLFW_KEY_TAB -> mode = MapTextures.Mode.values()[(mode.ordinal() + 1) % MapTextures.Mode.values().length];
-			case GLFW.GLFW_KEY_SPACE -> {
-				if (ClientRealm.god) god("speed", ClientRealm.speed == 0 ? 1 : 0, 0, 0, 0);
-			}
-			case GLFW.GLFW_KEY_1, GLFW.GLFW_KEY_2, GLFW.GLFW_KEY_3, GLFW.GLFW_KEY_4 -> {
-				int[] sp = {1, 2, 5, 10};
-				if (ClientRealm.god) god("speed", sp[key - GLFW.GLFW_KEY_1], 0, 0, 0);
-			}
 			default -> {
 				if (KingdomsClient.MAP.matches(e) && !(this.getFocused() != null)) {
 					onClose();
@@ -1001,6 +1072,7 @@ public final class MapScreen extends Screen {
 	}
 
 	private static void bar(GuiGraphicsExtractor g, int x, int y, int w, int h, float v, int color) {
+		if (w < 3 || h < 1) return;
 		v = Math.max(0, Math.min(1, v));
 		g.fill(x, y, x + w, y + h, 0xFF05070C);
 		g.fill(x, y, x + (int) (w * v), y + h, color);
@@ -1020,11 +1092,14 @@ public final class MapScreen extends Screen {
 	private void tooltipLines(GuiGraphicsExtractor g, List<Component> lines, int mx, int my) {
 		int w = 0;
 		for (Component c : lines) w = Math.max(w, font.width(c));
+		w = Math.min(w, width - 16);
 		int h = lines.size() * 10 + 4;
 		int x = mx + 10, y = my + 10;
 		if (x + w + 8 > width) x = mx - w - 14;
 		if (y + h > height) y = my - h - 4;
+		x = Math.max(2, Math.min(x, width - w - 10));
+		y = Math.max(2, Math.min(y, height - h - 2));
 		frame(g, "tooltip", x, y, w + 8, h);
-		for (int i = 0; i < lines.size(); i++) g.text(font, lines.get(i), x + 4, y + 3 + i * 10, TEXT, true);
+		for (int i = 0; i < lines.size(); i++) Ui2.fit(g, font, lines.get(i), x + 4, y + 3 + i * 10, w, TEXT);
 	}
 }
