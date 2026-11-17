@@ -74,6 +74,7 @@ public final class Structures {
 			case TEMPLE -> Architecture.temple(b, p, era);
 			case LIBRARY -> Architecture.library(b, p, era);
 			case WALL_TOWER -> Architecture.tower(b, p, era, cloth);
+			case GATE -> Architecture.gate(b, p, era, cloth);
 			case WORKSHOP -> Architecture.workshop(b, p, era);
 			case FACTORY -> Architecture.factory(b, p, era);
 			case WINDMILL -> Architecture.windmill(b, p, era);

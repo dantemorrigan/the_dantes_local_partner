@@ -208,6 +208,16 @@ public final class Constructor {
 	static void prepColumn(ServerLevel level, Realm realm, Settlement.Building b, int i) {
 		int x = i % Settlement.PLOT, z = i / Settlement.PLOT;
 		int wx = b.px + x, wz = b.pz + z;
+		if (b.type == com.dantemorrigan.kingdoms.sim.BuildingType.WALL_TOWER || b.type == com.dantemorrigan.kingdoms.sim.BuildingType.GATE) {
+			// part of the wall: no levelling, no street, only the vegetation goes (the wall itself must stay)
+			BlockPos.MutableBlockPos q = new BlockPos.MutableBlockPos(wx, b.y, wz);
+			for (int y = 1; y <= 12; y++) {
+				q.setY(b.y + y);
+				BlockState st = level.getBlockState(q);
+				if (st.is(BlockTags.LEAVES) || st.is(BlockTags.LOGS) || st.canBeReplaced()) level.setBlock(q, Blocks.AIR.defaultBlockState(), Block.UPDATE_CLIENTS);
+			}
+			return;
+		}
 		BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos(wx, b.y, wz);
 		BlockState was = level.getBlockState(pos);
 		for (int y = 1; y <= CLEAR; y++) {

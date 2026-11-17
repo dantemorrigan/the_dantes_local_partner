@@ -26,6 +26,7 @@ public final class WallWorks {
 
 	public static void clear() {
 		CURSOR.clear();
+		DAMAGE.clear();
 	}
 
 	static int height(int style) {
@@ -58,30 +59,32 @@ public final class WallWorks {
 	}
 
 	public static void tick(ServerLevel level, Realm realm) {
+		if (level.getGameTime() % 100 == 0) repair(realm);
 		List<ServerPlayer> players = level.players();
 		int budget = 400;
 		for (Settlement s : realm.settlements.values()) {
 			if (budget <= 0) break;
 			if (s.wall == 0 || s.wallProgress <= 0 || !Constructor.near(players, s.x, s.z, 260)) continue;
 			int style = s.wall - 1;
-			int target = (int) (s.wallProgress * Settlement.WALL_LEN);
+			int target = (int) (s.wallProgress * s.wallLen());
 			boolean fresh = s.wallProgress < 1f || realm.day - s.wallDoneDay <= 1;
 			int cur = CURSOR.getOrDefault(s.id, 0);
 			int scanned = 0, placed = 0;
-			while (scanned < Settlement.WALL_LEN && placed < 24 && budget > 0) {
-				int i = (cur + scanned) % Settlement.WALL_LEN;
+			int len = s.wallLen();
+			while (scanned < len && placed < 24 && budget > 0) {
+				int i = (cur + scanned) % len;
 				scanned++;
 				if (i >= target || s.wallBit(i)) continue;
 				int[] pos = s.wallPos(i);
 				if (!level.getChunkSource().hasChunk(pos[0] >> 4, pos[1] >> 4)) continue;
 				boolean live = fresh && i >= target - 24 && Constructor.near(players, pos[0], pos[1], 80);
 				if (live && !crewNear(s, pos[0], pos[1])) continue;
-				column(level, style, i, pos[0], pos[1], live);
+				column(level, s, style, i, live);
 				s.setWallBit(i);
 				placed++;
 				budget -= 10;
 			}
-			CURSOR.put(s.id, (cur + scanned) % Settlement.WALL_LEN);
+			CURSOR.put(s.id, (cur + scanned) % s.wallLen());
 		}
 	}
 
@@ -90,21 +93,53 @@ public final class WallWorks {
 		for (Settlement s : realm.settlements.values()) {
 			if (s.wall == 0 || Math.abs(s.x - x) > radius + 60 || Math.abs(s.z - z) > radius + 60) continue;
 			int style = s.wall - 1;
-			int target = (int) (s.wallProgress * Settlement.WALL_LEN);
+			int target = (int) (s.wallProgress * s.wallLen());
 			for (int i = 0; i < target; i++) {
 				if (s.wallBit(i)) continue;
 				int[] pos = s.wallPos(i);
 				if (!level.getChunkSource().hasChunk(pos[0] >> 4, pos[1] >> 4)) continue;
-				column(level, style, i, pos[0], pos[1], false);
+				column(level, s, style, i, false);
 				s.setWallBit(i);
 			}
 		}
 	}
 
-	static void column(ServerLevel level, int style, int i, int x, int z, boolean watched) {
-		if (Settlement.gate(i) || RoadWorks.isRoad(x, z)) return;
-		int gy = groundY(level, x, z);
-		if (gy == Integer.MIN_VALUE) return;
+	/** The ground in a column: {surface, bed}. Over water the surface is the water level and the bed is the floor below it. */
+	static int[] surface(ServerLevel level, int x, int z) {
+		int top = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1;
+		BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos(x, top, z);
+		BlockState first = level.getBlockState(p);
+		if (!first.getFluidState().isEmpty()) {
+			int water = top;
+			for (int d = 0; d < 16; d++) {
+				p.setY(top - d);
+				BlockState st = level.getBlockState(p);
+				if (st.getFluidState().isEmpty() && !st.isAir()) return new int[]{water, top - d};
+			}
+			return new int[]{water, top - 16};
+		}
+		for (int i = 0; i < 24; i++) {
+			BlockState st = level.getBlockState(p);
+			if (!(st.isAir() || st.is(BlockTags.LOGS) || st.is(BlockTags.LEAVES) || st.canBeReplaced() || st.is(BlockTags.FLOWERS))) return new int[]{p.getY(), p.getY()};
+			p.move(0, -1, 0);
+		}
+		return null;
+	}
+
+	/** One stretch of the wall: from the foundation up, with a walkway behind the parapet from the first age of stone on. */
+	static void column(ServerLevel level, Settlement s, int style, int i, boolean watched) {
+		if (s.gate(i)) return; // the gate house stands here
+		int rows = style == 0 ? 1 : 2;
+		for (int off = 0; off < rows; off++) {
+			int[] pos = s.wallPos(i, off);
+			stack(level, style, i, pos[0], pos[1], off, watched && off == 0);
+		}
+	}
+
+	static void stack(ServerLevel level, int style, int i, int x, int z, int off, boolean watched) {
+		int[] sf = surface(level, x, z);
+		if (sf == null) return;
+		int ground = sf[0], bed = sf[1];
 		int h = height(style);
 		BlockState body = switch (style) {
 			case 0 -> Blocks.SPRUCE_LOG.defaultBlockState();
@@ -112,38 +147,58 @@ public final class WallWorks {
 			case 2, 3 -> Blocks.STONE_BRICKS.defaultBlockState();
 			default -> Blocks.POLISHED_ANDESITE.defaultBlockState();
 		};
-		BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos(x, gy, z);
-		for (int dy = -1; dy >= -4; dy--) {
-			p.setY(gy + dy);
+		BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos(x, 0, z);
+		// foundation: down to the bed, so there is never a gap under the wall
+		for (int y = Math.min(bed, ground) - 3; y <= ground; y++) {
+			p.setY(y);
 			BlockState st = level.getBlockState(p);
-			if (!(st.isAir() || st.canBeReplaced() || st.is(BlockTags.LEAVES) || st.is(BlockTags.LOGS))) break;
-			level.setBlock(p, Blocks.COBBLESTONE.defaultBlockState(), Block.UPDATE_CLIENTS);
+			if (st.isAir() || st.canBeReplaced() || st.is(BlockTags.LEAVES) || st.is(BlockTags.LOGS) || !st.getFluidState().isEmpty()) {
+				level.setBlock(p, Blocks.COBBLESTONE.defaultBlockState(), Block.UPDATE_CLIENTS);
+			}
 		}
-		for (int dy = 1; dy <= h; dy++) {
-			p.setY(gy + dy);
+		int solid = style == 0 ? h - 1 : off == 0 ? h : h - 1;
+		for (int dy = 1; dy <= solid; dy++) {
+			p.setY(ground + dy);
 			BlockState st = body;
-			if (style == 4 && dy == 4 && i % 9 == 0) st = Blocks.IRON_BARS.defaultBlockState();
-			if (style == 3 && dy == h - 1) st = Blocks.CHISELED_STONE_BRICKS.defaultBlockState();
+			if (style == 4 && off == 0 && dy == 4 && i % 9 == 0) st = Blocks.IRON_BARS.defaultBlockState();
+			if (style == 3 && off == 0 && dy == h - 1) st = Blocks.CHISELED_STONE_BRICKS.defaultBlockState();
 			level.setBlock(p, st, Block.UPDATE_CLIENTS);
 		}
-		p.setY(gy + h + 1);
-		BlockState crown = switch (style) {
-			case 0 -> Blocks.OAK_FENCE.defaultBlockState();
-			case 1 -> i % 2 == 0 ? Blocks.COBBLESTONE_WALL.defaultBlockState() : Blocks.AIR.defaultBlockState();
-			default -> i % 2 == 0 ? Blocks.STONE_BRICK_WALL.defaultBlockState() : Blocks.AIR.defaultBlockState();
-		};
-		level.setBlock(p, crown, Block.UPDATE_ALL);
-		for (int dy = h + 2; dy <= h + 3; dy++) {
-			p.setY(gy + dy);
-			if (level.getBlockState(p).is(BlockTags.LEAVES)) level.setBlock(p, Blocks.AIR.defaultBlockState(), Block.UPDATE_CLIENTS);
-		}
-		if (style >= 1 && i % 26 == 13) { // torches along the wall top
-			p.setY(gy + h + 2);
+		if (off == 0) { // the parapet on the outer face
+			p.setY(ground + solid + 1);
+			BlockState crown = switch (style) {
+				case 0 -> Blocks.OAK_FENCE.defaultBlockState();
+				case 1 -> i % 2 == 0 ? Blocks.COBBLESTONE_WALL.defaultBlockState() : Blocks.AIR.defaultBlockState();
+				default -> i % 2 == 0 ? Blocks.STONE_BRICK_WALL.defaultBlockState() : Blocks.AIR.defaultBlockState();
+			};
+			level.setBlock(p, crown, Block.UPDATE_ALL);
+		} else if (i % 14 == 7) { // torches on the walkway
+			p.setY(ground + solid + 1);
 			level.setBlock(p, style >= 3 ? Blocks.LANTERN.defaultBlockState() : Blocks.TORCH.defaultBlockState(), Block.UPDATE_CLIENTS);
 		}
-		if (watched && level.getRandom().nextInt(3) == 0) {
-			level.playSound(null, new BlockPos(x, gy + 3, z), body.getSoundType().getPlaceSound(), net.minecraft.sounds.SoundSource.BLOCKS, 0.7f, 0.9f);
+		for (int dy = solid + 2; dy <= solid + 4; dy++) { // free the air above from leaves and branches
+			p.setY(ground + dy);
+			if (level.getBlockState(p).is(BlockTags.LEAVES)) level.setBlock(p, Blocks.AIR.defaultBlockState(), Block.UPDATE_CLIENTS);
 		}
+		if (watched && level.getRandom().nextInt(3) == 0) {
+			level.playSound(null, new BlockPos(x, ground + 3, z), body.getSoundType().getPlaceSound(), net.minecraft.sounds.SoundSource.BLOCKS, 0.7f, 0.9f);
+		}
+	}
+
+	/** Breaches in the wall: the columns are put back a few days after the fighting. {settlement, column, day}. */
+	private static final java.util.List<long[]> DAMAGE = new java.util.ArrayList<>();
+
+	public static void damaged(Settlement s, int col, long day) {
+		for (int k = -5; k <= 5; k++) DAMAGE.add(new long[]{s.id, (col + k + s.wallLen()) % s.wallLen(), day + 4});
+	}
+
+	static void repair(Realm realm) {
+		DAMAGE.removeIf(e -> {
+			if (e[2] > realm.day) return false;
+			Settlement s = realm.settlements.get((int) e[0]);
+			if (s != null) s.wallBits[(int) e[1] >> 6] &= ~(1L << ((int) e[1] & 63));
+			return true;
+		});
 	}
 
 	private WallWorks() {}

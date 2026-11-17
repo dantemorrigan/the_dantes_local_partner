@@ -20,6 +20,7 @@ public enum BuildingType {
 	MARKET(Era.FEUDAL,           20,    8,   0,   6,   8,  0,    0,    0,    0,    1.0f, 0.1f, 0),
 	TEMPLE(Era.FEUDAL,           18,   26,   0,  14,  14,  0,    0,    0,    0,    0,    0.3f, 0),
 	WALL_TOWER(Era.TRIBAL,        8,    2,   0,   0,   5,  0,    0,    0,    0,    0,    0,    0),
+	GATE(Era.TRIBAL,             10,    4,   0,   0,   6,  0,    0,    0,    0,    0,    0,    0),
 	LIBRARY(Era.CASTLE,          26,   20,   0,  16,  12,  0,    0,    0,    0,    0,    1.2f, 0),
 	WORKSHOP(Era.RENAISSANCE,    24,   30,  10,  12,  12,  0,    0.5f, 0.5f, 0.4f, 0.4f, 0.4f, 0),
 	FACTORY(Era.INDUSTRIAL,      20,   60,  30,  30,  18,  0,    0,    0,    1.2f, 1.2f, 0.6f, 0),

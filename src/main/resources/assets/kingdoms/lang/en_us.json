@@ -337,10 +337,13 @@
  "kingdoms.building.foundry": "Foundry",
  "kingdoms.building.university": "University",
  "kingdoms.building.station": "Railway station",
+ "kingdoms.building.gate": "City gate",
+ "kingdoms.citizen.commander": "Commander of %s",
  "kingdoms.log.battle": "Battle! The armies of %s and %s clash.",
  "kingdoms.log.siege": "%s besieges %s (%s).",
  "kingdoms.log.wall": "%s begins to fence %s with a wall.",
  "kingdoms.log.wall_up": "%s rebuilds the walls of %s for the %s.",
  "kingdoms.log.road": "%s lays a road to %s.",
- "kingdoms.log.railway": "%s opens its first railway!"
+ "kingdoms.log.railway": "%s opens its first railway!",
+ "kingdoms.log.breach": "%s sappers blow a breach in the wall of %s!"
 }

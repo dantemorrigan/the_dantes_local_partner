@@ -321,6 +321,31 @@ final class Architecture {
 		bp.set(4, h + 1, 4, Blocks.TORCH);
 	}
 
+	/**
+	 * A gate house in the middle of a side of the wall: two towers with battlements and a lintel over a four-wide
+	 * passage (plot z axis) with a raised portcullis and lanterns. Guards stand at both mouths, bowmen on the towers.
+	 */
+	static void gate(Blueprint bp, Structures.Palette p, int era, BlockState cloth) {
+		int h = WallWorks.height(era);
+		int ht = h + 4;
+		BlockState wall = era == 0 ? b(Blocks.SPRUCE_LOG) : era == 1 ? b(Blocks.COBBLESTONE) : era <= 3 ? b(Blocks.STONE_BRICKS) : b(Blocks.POLISHED_ANDESITE);
+		bp.hollow(0, 1, 0, 11, ht + 8, 11);
+		bp.fill(4, 0, 0, 7, 0, 11, p.road());
+		for (int x0 : new int[]{0, 8}) bp.fill(x0, 1, 3, x0 + 3, ht, 8, wall);
+		bp.fill(4, h, 3, 7, ht, 8, wall);
+		bp.fill(0, 0, 3, 3, 0, 8, p.found());
+		bp.fill(8, 0, 3, 11, 0, 8, p.found());
+		for (int x = 4; x <= 7; x++) bp.set(x, h - 1, 3, Blocks.IRON_BARS).set(x, h - 1, 8, Blocks.IRON_BARS);
+		bp.set(4, h - 2, 5, Blocks.LANTERN).set(7, h - 2, 6, Blocks.LANTERN);
+		bp.battlements(0, 3, 11, 8, ht + 1, wall);
+		for (int x0 : new int[]{0, 8}) { // arrow slits toward both mouths
+			bp.set(x0 + 1, ht - 2, 3, Blocks.AIR).set(x0 + 2, ht - 2, 8, Blocks.AIR);
+		}
+		bp.flag(1, ht + 2, 4, cloth, true);
+		bp.flag(10, ht + 2, 6, cloth, false);
+		bp.set(3, 1, 2, Blocks.TORCH).set(8, 1, 2, Blocks.TORCH).set(3, 1, 9, Blocks.TORCH).set(8, 1, 9, Blocks.TORCH);
+	}
+
 	// ------------------------------------------------------------------ work
 
 	static void smithy(Blueprint bp, Structures.Palette p, int era) {

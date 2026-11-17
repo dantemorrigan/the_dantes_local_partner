@@ -337,10 +337,13 @@
  "kingdoms.building.foundry": "Литейная",
  "kingdoms.building.university": "Университет",
  "kingdoms.building.station": "Вокзал",
+ "kingdoms.building.gate": "Городские ворота",
+ "kingdoms.citizen.commander": "Командир · %s",
  "kingdoms.log.battle": "Битва! Сошлись армии: %s и %s.",
  "kingdoms.log.siege": "%s осаждает: %s (%s).",
  "kingdoms.log.wall": "%s начинает обносить стеной город %s.",
  "kingdoms.log.wall_up": "%s перестраивает стены города %s (%s).",
  "kingdoms.log.road": "%s прокладывает дорогу к: %s.",
- "kingdoms.log.railway": "%s открывает первую железную дорогу!"
+ "kingdoms.log.railway": "%s открывает первую железную дорогу!",
+ "kingdoms.log.breach": "Сапёры королевства %s пробили стену города %s!"
 }

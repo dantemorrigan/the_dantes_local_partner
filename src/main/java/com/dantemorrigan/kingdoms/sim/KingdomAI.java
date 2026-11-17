@@ -290,7 +290,7 @@ public final class KingdomAI {
 				}
 			}
 			if (s.wall > 0 && s.wallProgress > 0 && s.wallProgress < 1f) {
-				s.wallProgress = Math.min(1f, s.wallProgress + pace / (14 + (s.wall - 1) * 4) * dt);
+				s.wallProgress = Math.min(1f, s.wallProgress + pace / (14 + (s.wall - 1) * 4) * (52f / s.wallR) * dt);
 				if (s.wallProgress >= 1f) s.wallDoneDay = r.day;
 			}
 		}
@@ -308,13 +308,13 @@ public final class KingdomAI {
 		float pace = pace(k);
 		for (Settlement s : r.settlementsOf(k.id)) {
 			int active = 0;
-			for (Settlement.Building b : s.buildings) if (!b.done() && !b.ruined && b.type != BuildingType.WALL_TOWER) active++;
+			for (Settlement.Building b : s.buildings) if (!b.done() && !b.ruined && b.type != BuildingType.WALL_TOWER && b.type != BuildingType.GATE) active++;
 			walls(r, k, s, pace);
 			int slots = (s.capital ? 2 : 1) + k.era / 2 + (k.gold > 250 ? 1 : 0) + (k.gold > 1500 ? 1 : 0);
 			if (active >= slots) continue;
 			int limit = s.capital ? 14 + k.era * 12 : 7 + k.era * 7;
 			int plain = 0;
-			for (Settlement.Building b : s.buildings) if (b.type != BuildingType.WALL_TOWER) plain++;
+			for (Settlement.Building b : s.buildings) if (b.type != BuildingType.WALL_TOWER && b.type != BuildingType.GATE) plain++;
 			if (plain >= limit) continue;
 			BuildingType t = choose(r, k, s);
 			if (t == null || !afford(r, k, t)) continue;
@@ -351,7 +351,7 @@ public final class KingdomAI {
 			return;
 		}
 		float[] c = wallCost(style);
-		float f = upgrade ? 0.7f : 1f;
+		float f = (upgrade ? 0.7f : 1f) * s.wallR / 52f;
 		if (k.wood < c[0] * f || k.stone < c[1] * f || k.iron < c[2] * f || k.gold < c[3] * f) return;
 		k.wood -= c[0] * f;
 		k.stone -= c[1] * f;
@@ -359,15 +359,17 @@ public final class KingdomAI {
 		k.gold -= c[3] * f;
 		s.wall = style + 1;
 		s.wallProgress = 0.001f;
-		s.wallBits = new long[7];
-		int R = Settlement.WALL_R;
-		int[][] spots = {{-R, -R}, {0, -R}, {R, -R}, {R, 0}, {R, R}, {0, R}, {-R, R}, {-R, 0}};
+		s.wallBits = new long[10];
+		int R = s.wallR;
 		if (start) {
-			for (int[] o : spots) s.buildings.add(new Settlement.Building(BuildingType.WALL_TOWER, s.x + o[0] - 6, s.z + o[1] - 6, style));
+			// four corner towers and four gate houses in the middle of the sides
+			int[][] corners = {{-R, -R}, {R, -R}, {R, R}, {-R, R}}, gates = {{0, -R}, {R, 0}, {0, R}, {-R, 0}};
+			for (int[] o : corners) s.buildings.add(new Settlement.Building(BuildingType.WALL_TOWER, s.x + o[0] - 6, s.z + o[1] - 6, style));
+			for (int[] o : gates) s.buildings.add(new Settlement.Building(BuildingType.GATE, s.x + o[0] - 6, s.z + o[1] - 6, style));
 			r.log(1, s.x, s.z, "kingdoms.log.wall", Chronicle.kingdom(k), Chronicle.name(s.name));
 		} else {
 			for (Settlement.Building b : s.buildings) {
-				if (b.type != BuildingType.WALL_TOWER) continue;
+				if (b.type != BuildingType.WALL_TOWER && b.type != BuildingType.GATE) continue;
 				b.style = style;
 				b.progress = 0;
 				b.placed = 0;
@@ -405,6 +407,7 @@ public final class KingdomAI {
 			int[] p = s.plot(s.nextPlot++);
 			int mx = p[0] + Settlement.PLOT / 2, mz = p[1] + Settlement.PLOT / 2;
 			if (Terrain.water(r.terrainAtBlock(mx, mz))) continue;
+			if (Math.abs(mx - s.x) + 6 > s.plotLimit() || Math.abs(mz - s.z) + 6 > s.plotLimit()) continue; // inside the wall
 			if (tr != null && tr.ready && Math.abs(heightAt(r, mx, mz) - centerH) > 9) continue;
 			boolean clash = false;
 			for (Settlement o : r.settlements.values()) {
@@ -551,7 +554,7 @@ public final class KingdomAI {
 			if (r.owner[Realm.idx(x, z)] != k.id || !goodTown(r, x, z, k.id)) continue;
 			float d = 1e9f;
 			for (Settlement s : r.settlements.values()) d = Math.min(d, (float) Math.hypot(r.cellX(s.x) - x, r.cellZ(s.z) - z));
-			if (d < 6.5f) continue;
+			if (d < 9f) continue;
 			float score = value(r.terrainAt(x, z)) - Math.abs(d - 9) * 0.3f + r.random.nextFloat();
 			if (score > best) {
 				best = score;
@@ -863,7 +866,7 @@ public final class KingdomAI {
 			if (a.soldiers < 0.5f) continue;
 			float speed = a.mission == 1 ? 1.0f : a.mission == 2 ? 3.6f : a.home ? 3.8f : 3.2f;
 			if (a.fighting > 0) speed *= 0.25f;
-			advance(r, a, speed * dt * r.roadBoost(a.x, a.z));
+			if (!a.observed) advance(r, a, speed * dt * r.roadBoost(a.x, a.z)); // watched armies are led by their commander in the world
 			if (a.home) {
 				if (arrived(a)) {
 					k.soldiers += a.soldiers;

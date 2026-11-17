@@ -24,20 +24,40 @@ public final class Settlement {
 	public int wall;
 	public float wallProgress;
 	public long wallDoneDay;
-	public long[] wallBits = new long[7];
-	/** Half-size of the wall square, in blocks: it encloses the farthest plot of a town. */
-	public static final int WALL_R = 52;
-	public static final int WALL_LEN = WALL_R * 8;
+	public long[] wallBits = new long[10];
+	/** Half-size of the wall square in blocks: it encloses every plot the town can ever have (bigger for a capital). */
+	public int wallR;
 
-	/** Block position of wall column i (0..WALL_LEN-1), walking the square clockwise from the north-west corner. */
-	public int[] wallPos(int i) {
-		int side = i / (WALL_R * 2), pos = i % (WALL_R * 2);
+	public static int radiusFor(boolean capital) {
+		return capital ? 68 : 56;
+	}
+
+	/** Columns along the wall ring. */
+	public int wallLen() {
+		return wallR * 8;
+	}
+
+	/** The farthest a plot's edge may be from the town centre: inside the wall, with room for a street. */
+	public int plotLimit() {
+		return wallR - 9;
+	}
+
+	/**
+	 * Block position of wall column i, walking the square clockwise from the north-west corner; {@code off} steps
+	 * inward from the outer face (0 outer, 1 the walkway behind it).
+	 */
+	public int[] wallPos(int i, int off) {
+		int R = wallR, side = i / (R * 2), pos = i % (R * 2);
 		return switch (side) {
-			case 0 -> new int[]{x - WALL_R + pos, z - WALL_R};
-			case 1 -> new int[]{x + WALL_R, z - WALL_R + pos};
-			case 2 -> new int[]{x + WALL_R - pos, z + WALL_R};
-			default -> new int[]{x - WALL_R, z + WALL_R - pos};
+			case 0 -> new int[]{x - R + pos, z - R + off};
+			case 1 -> new int[]{x + R - off, z - R + pos};
+			case 2 -> new int[]{x + R - pos, z + R - off};
+			default -> new int[]{x - R + off, z + R - pos};
 		};
+	}
+
+	public int[] wallPos(int i) {
+		return wallPos(i, 0);
 	}
 
 	public boolean wallBit(int i) {
@@ -48,10 +68,14 @@ public final class Settlement {
 		wallBits[i >> 6] |= 1L << (i & 63);
 	}
 
-	/** Gate gaps: seven columns around the middle of each side. */
-	public static boolean gate(int i) {
-		int pos = i % (WALL_R * 2);
-		return Math.abs(pos - WALL_R) <= 3;
+	/** The gate house takes a twelve-column stretch around the middle of each side: the wall leaves it free. */
+	public boolean gate(int i) {
+		int pos = i % (wallR * 2);
+		return pos >= wallR - 6 && pos <= wallR + 5;
+	}
+
+	public int wallSide(int i) {
+		return i / (wallR * 2);
 	}
 
 	public Settlement(int id, int kingdom, int[] name, int x, int z, boolean capital) {
@@ -61,6 +85,7 @@ public final class Settlement {
 		this.x = x;
 		this.z = z;
 		this.capital = capital;
+		this.wallR = radiusFor(capital);
 	}
 
 	/** Plot corner (block coordinates) for spiral index i (0 = the center plot). */
@@ -105,6 +130,7 @@ public final class Settlement {
 		t.putInt("next", nextPlot);
 		t.putFloat("gar", garrison);
 		t.putInt("wall", wall);
+		t.putInt("wallr", wallR);
 		t.putFloat("wallp", wallProgress);
 		t.putLong("walld", wallDoneDay);
 		t.putLongArray("wallb", wallBits);
@@ -120,10 +146,11 @@ public final class Settlement {
 		s.nextPlot = t.getIntOr("next", 1);
 		s.garrison = t.getFloatOr("gar", 0);
 		s.wall = t.getIntOr("wall", 0);
+		s.wallR = t.getIntOr("wallr", s.wall > 0 ? 52 : Settlement.radiusFor(s.capital));
 		s.wallProgress = t.getFloatOr("wallp", 0);
 		s.wallDoneDay = t.getLongOr("walld", 0);
-		long[] wb = t.getLongArray("wallb").orElse(new long[7]);
-		System.arraycopy(wb, 0, s.wallBits, 0, Math.min(wb.length, 7));
+		long[] wb = t.getLongArray("wallb").orElse(new long[10]);
+		System.arraycopy(wb, 0, s.wallBits, 0, Math.min(wb.length, 10));
 		for (Tag b : t.getListOrEmpty("b")) if (b instanceof CompoundTag c) s.buildings.add(Building.load(c));
 		return s;
 	}

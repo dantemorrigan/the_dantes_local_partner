@@ -70,6 +70,8 @@ public class CitizenEntity extends PathfinderMob implements RangedAttackMob, Mer
 	public float weight = 1f;
 	/** Caravan this merchant walks with (0: a market vendor). */
 	public int caravanId;
+	/** The officer who leads a squad, and the sapper who carries the dynamite. */
+	public boolean commander, sapper;
 	/** A work site given directly (a road front): builders go there instead of a building. */
 	public boolean hasSite;
 	public int siteX, siteZ;
@@ -311,7 +313,7 @@ public class CitizenEntity extends PathfinderMob implements RangedAttackMob, Mer
 			List<int[]> sites = new java.util.ArrayList<>();
 			for (Settlement.Building b : s.buildings) if (!b.done() && !b.ruined) sites.add(new int[]{b.px + 6, b.pz + 6, b.y == Integer.MIN_VALUE ? Integer.MIN_VALUE : b.y + 1});
 			if (s.wall > 0 && s.wallProgress < 1f) { // the front of the wall going up
-				int[] pos = s.wallPos(Math.max(0, Math.min(Settlement.WALL_LEN - 1, (int) (s.wallProgress * Settlement.WALL_LEN))));
+				int[] pos = s.wallPos(Math.max(0, Math.min(s.wallLen() - 1, (int) (s.wallProgress * s.wallLen()))), 0);
 				sites.add(new int[]{pos[0], pos[1], Integer.MIN_VALUE});
 			}
 			if (sites.isEmpty()) return false;
@@ -358,6 +360,23 @@ public class CitizenEntity extends PathfinderMob implements RangedAttackMob, Mer
 		public void stop() {
 			cx = 0;
 		}
+	}
+
+	public void makeCommander(Kingdom k) {
+		this.commander = true;
+		this.setItemSlot(EquipmentSlot.HEAD, new ItemStack(Items.GOLDEN_HELMET));
+		this.setItemSlot(EquipmentSlot.OFFHAND, new ItemStack(Structures.WOOL[Math.floorMod(k.dye, 16)]));
+		this.getAttribute(Attributes.MAX_HEALTH).setBaseValue(this.getMaxHealth() + 12);
+		this.setHealth(this.getMaxHealth());
+		this.setCustomName(Component.translatable("kingdoms.citizen.commander", k.title()));
+		this.setCustomNameVisible(true);
+	}
+
+	public void makeSapper() {
+		this.sapper = true;
+		this.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(Items.TNT));
+		this.setItemSlot(EquipmentSlot.OFFHAND, ItemStack.EMPTY);
+		this.setItemSlot(EquipmentSlot.HEAD, new ItemStack(Items.TURTLE_HELMET));
 	}
 
 	public void setSite(int x, int z) {

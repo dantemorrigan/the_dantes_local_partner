@@ -38,11 +38,14 @@ public final class WarZone {
 	private static final Map<Integer, List<CitizenEntity>> SQUADS = new HashMap<>();
 	private static final Map<Integer, CitizenEntity> MERCHANTS = new HashMap<>();
 	private static final Map<Integer, Boolean> DEPLOYED = new HashMap<>();
+	private static final Map<Integer, Squad> BRAINS = new HashMap<>();
 
 	public static void clear() {
 		SQUADS.clear();
 		MERCHANTS.clear();
 		DEPLOYED.clear();
+		BRAINS.clear();
+		Squad.TEMP.clear();
 	}
 
 	static int bx(Realm r, float cell) {
@@ -61,6 +64,7 @@ public final class WarZone {
 	public static void tick(ServerLevel level, Realm r, boolean force) {
 		if (!force && level.getGameTime() % 10 != 0) return;
 		List<ServerPlayer> players = level.players();
+		if (level.getGameTime() % 100 == 0) Squad.expireBridges(level);
 		// armies that no longer exist
 		for (Iterator<Map.Entry<Integer, List<CitizenEntity>>> it = SQUADS.entrySet().iterator(); it.hasNext(); ) {
 			var e = it.next();
@@ -68,6 +72,7 @@ public final class WarZone {
 			if (a == null || a.soldiers < 0.5f) {
 				for (CitizenEntity c : e.getValue()) c.discard();
 				DEPLOYED.remove(e.getKey());
+				BRAINS.remove(e.getKey());
 				it.remove();
 			}
 		}
@@ -83,6 +88,7 @@ public final class WarZone {
 				for (CitizenEntity c : squad) c.discard();
 				squad.clear();
 				DEPLOYED.remove(a.id);
+				BRAINS.remove(a.id);
 				a.observed = false;
 				a.pressure = 1f;
 				continue;
@@ -105,7 +111,7 @@ public final class WarZone {
 				a.soldiers = 0; // the whole force fell in the world
 				continue;
 			}
-			deploy(level, r, a, k, squad, x, z);
+			BRAINS.computeIfAbsent(a.id, Squad::new).step(level, r, a, k, squad);
 		}
 		caravans(level, r, players);
 	}
@@ -124,54 +130,14 @@ public final class WarZone {
 		c.armyId = a.id;
 		c.weight = weight;
 		c.clearHome();
-		if (k.era >= 2 && i % 3 == 2) c.makeArcher();
+		boolean archer = k.era >= 2 && i % 3 == 2 && i != 0;
+		if (archer) c.makeArcher();
+		else if (i != 0 && i % 7 == 3) c.makeSapper(); // a few sappers with dynamite
+		if (i == 0) c.makeCommander(k);
+		else c.setCustomNameVisible(false);
+		c.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.STEP_HEIGHT).setBaseValue(1.1);
 		level.addFreshEntity(c);
 		return c;
-	}
-
-	/** Orders for one army: march in column, or ring the objective and tighten as the siege advances. */
-	static void deploy(ServerLevel level, Realm r, Army a, Kingdom k, List<CitizenEntity> squad, int ax, int az) {
-		int cx = (int) Math.floor(a.tx), cz = (int) Math.floor(a.tz);
-		boolean sieging = a.mission == 0 && Realm.inside(cx, cz) && Math.hypot(a.tx - a.x, a.tz - a.z) < 0.9
-				&& r.owner[Realm.idx(cx, cz)] != 0 && r.owner[Realm.idx(cx, cz)] != k.id && k.wars.contains((int) r.owner[Realm.idx(cx, cz)]);
-		int n = squad.size();
-		double centerX = ax, centerZ = az;
-		double radius = 0;
-		int siege = 0;
-		Settlement town = null;
-		if (sieging) {
-			int i = Realm.idx(cx, cz);
-			siege = r.siegeBy[i] == k.id ? r.siege[i] & 0xFF : 0;
-			town = r.settlementAtCell(cx, cz);
-			centerX = town != null ? town.x : bx(r, cx + 0.5f);
-			centerZ = town != null ? town.z : bz(r, cz + 0.5f);
-			radius = Math.max(6, 24 - 17 * siege / 100.0);
-		}
-		int at = 0;
-		for (int i = 0; i < n; i++) {
-			CitizenEntity c = squad.get(i);
-			double sx, sz;
-			if (sieging) {
-				double ang = Math.PI * 2 * i / n + 0.35;
-				sx = centerX + Math.cos(ang) * radius;
-				sz = centerZ + Math.sin(ang) * radius;
-				if (Math.hypot(c.getX() - centerX, c.getZ() - centerZ) < radius + 12) at++;
-			} else {
-				sx = centerX + (i % 5) * 2.2 - 4.4;
-				sz = centerZ + (i / 5) * 2.2;
-				at++;
-			}
-			if (!level.getChunkSource().hasChunk((int) sx >> 4, (int) sz >> 4)) continue;
-			int sy = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, (int) sx, (int) sz);
-			double dist = Math.hypot(c.getX() - sx, c.getZ() - sz);
-			if (dist > 70 && c.getTarget() == null) {
-				c.teleportTo(sx, sy, sz);
-			} else if (c.getTarget() == null && (dist > 2.5 || c.getNavigation().isDone())) {
-				if (dist > 1.5) c.getNavigation().moveTo(sx, sy, sz, a.fighting > 0 || sieging ? 1.15 : 1.0);
-			}
-		}
-		a.pressure = sieging ? Math.min(1f, at / (float) n) : 1f;
-		if (sieging && town != null && a.pressure > 0.3f && level.getGameTime() % 20 == 0) batter(level, r, town, k, squad, siege);
 	}
 
 	/** The besiegers break into the buildings of the town: blocks fly out of the walls, fires start. */
