@@ -120,12 +120,21 @@ public class KingdomsTest implements FabricClientGameTest {
 			// Two armies at war meet next to the first kingdom's capital: a real battle.
 			int[] ar = ids.size() < 2 ? null : server.computeOnServer(s -> {
 				Realm r = KingdomsMod.realm();
-				Settlement c = r.capitalOf(r.kingdoms.get(ids.get(0)));
-				if (c == null) return null;
+				Settlement c = null;
+				int first = 0, second = 0;
+				for (int i = 0; i < ids.size() && c == null; i++) {
+					Kingdom kk = r.kingdoms.get(ids.get(i));
+					if (kk != null && kk.alive && r.capitalOf(kk) != null) {
+						c = r.capitalOf(kk);
+						first = kk.id;
+						second = ids.get((i + 1) % ids.size());
+					}
+				}
+				if (c == null || first == second) return null;
 				var p = s.getPlayerList().getPlayers().getFirst();
-				GodPowers.act(p, "war", ids.get(0), ids.get(1), 0, 0);
-				GodPowers.act(p, "army", ids.get(0), ids.get(1), c.x + 24, c.z + 24);
-				GodPowers.act(p, "army", ids.get(1), ids.get(0), c.x + 40, c.z + 24);
+				GodPowers.act(p, "war", first, second, 0, 0);
+				GodPowers.act(p, "army", first, second, c.x + 24, c.z + 24);
+				GodPowers.act(p, "army", second, first, c.x + 40, c.z + 24);
 				r.speed = 2;
 				return new int[]{c.x + 30, c.z + 24};
 			});
