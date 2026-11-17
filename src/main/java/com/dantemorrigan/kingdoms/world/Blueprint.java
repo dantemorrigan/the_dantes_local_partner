@@ -108,7 +108,6 @@ public final class Blueprint {
 	 */
 	public Blueprint roof(int x1, int z1, int x2, int z2, int y, BlockState stairs, BlockState slab) {
 		int dx = x2 - x1, dz = z2 - z1;
-		if (Math.abs(dx - dz) <= 1) return pyramid(x1, z1, x2, z2, y, stairs, slab);
 		if (dx <= dz) { // ridge along Z, slopes across X
 			for (int i = 0; ; i++) {
 				int xl = x1 + i, xr = x2 - i;

@@ -133,9 +133,11 @@ public class KingdomsTest implements FabricClientGameTest {
 				ctx.setScreen(() -> null);
 				final int[] fa = ar;
 				server.runCommand("gamemode spectator @p");
+				server.runCommand("tp @p " + (fa[0] - 18) + " 140 " + (fa[1] - 18) + " -45 30");
+				ctx.waitTicks(40);
 				int gy = server.computeOnServer(s -> s.overworld().getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, fa[0], fa[1]));
-				server.runCommand("tp @p " + (fa[0] - 18) + " " + (gy + 16) + " " + (fa[1] - 18) + " -45 30");
-				ctx.waitTicks(20 * 15);
+				server.runCommand("tp @p " + (fa[0] - 18) + " " + (gy + 14) + " " + (fa[1] - 18) + " -45 30");
+				ctx.waitTicks(20 * 10);
 				int[] soldiers = server.computeOnServer(s -> {
 					int w = 0, g = 0;
 					for (var e : s.overworld().getAllEntities()) if (e instanceof com.dantemorrigan.kingdoms.world.CitizenEntity c && c.role() == 2) {
