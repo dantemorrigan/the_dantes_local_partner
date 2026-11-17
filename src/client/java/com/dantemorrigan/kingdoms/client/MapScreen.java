@@ -350,15 +350,19 @@ public final class MapScreen extends Screen {
 
 	// ------------------------------------------------------------------ chrome (command-bar layout)
 
+	private static int topRightWidth() {
+		return 18 * 9 + 12 + 14 + 62;
+	}
+
 	private void topRight(GuiGraphicsExtractor g, int mx, int my) {
-		int speedsN = 5, w = 18 * (speedsN + 3 + 1) + 40 + 14 + 74;
+		int w = topRightWidth();
 		int x0 = width - w - 3;
 		frame(g, "panel", x0, 2, w, 22);
 		int year = (int) (ClientRealm.day / Realm.DAYS_PER_YEAR) + 1;
 		int season = (int) (ClientRealm.day % Realm.DAYS_PER_YEAR) * 4 / Realm.DAYS_PER_YEAR;
 		Component date = Component.translatable("kingdoms.map.date", year, Component.translatable("kingdoms.season." + season));
-		Ui2.fit(g, font, date, x0 + 7, 9, 74, GOLD);
-		int x = x0 + 80;
+		Ui2.fit(g, font, date, x0 + 6, 9, 60, GOLD, 0.9f);
+		int x = x0 + 68;
 		int[] speeds = {0, 1, 2, 5, 10};
 		String[] sIcons = {"pause", "speed1", "speed2", "speed3", "speed3"};
 		for (int i = 0; i < speeds.length; i++) {
@@ -386,20 +390,21 @@ public final class MapScreen extends Screen {
 	/** The top-left strip: the treasury and stores of the selected kingdom, like a resource bar in a strategy game. */
 	private void resourceStrip(GuiGraphicsExtractor g) {
 		ClientRealm.KView k = ClientRealm.kingdom(selected);
-		int cell = 56, items = 7, w = Math.min(width - 270, items * cell + 10);
-		if (w < 120) return;
+		int w = width - topRightWidth() - 12;
+		if (w < 90) return;
+		w = Math.min(w, 7 * 52 + 10);
 		frame(g, "panel", 3, 2, w, 22);
 		if (k == null) {
 			icon(g, "crown", 8, 5, 16);
-			Ui2.fit(g, font, Component.translatable("kingdoms.map.pick_hint"), 28, 9, w - 30, MUTED);
+			Ui2.fit(g, font, Component.translatable("kingdoms.map.pick_hint"), 28, 9, w - 30, MUTED, 0.85f);
 			return;
 		}
 		String[] ic = {"gold", "food", "wood", "stone", "iron", "people", "battle"};
 		float[] v = {k.gold, k.food, k.wood, k.stone, k.iron, k.pop, k.might};
-		int per = Math.max(34, (w - 8) / items);
+		int items = Math.max(2, Math.min(7, (w - 8) / 38));
+		int per = (w - 8) / items;
 		for (int i = 0; i < items; i++) {
 			int x = 8 + i * per;
-			if (x + per > 3 + w) break;
 			icon(g, ic[i], x, 5, 14);
 			Ui2.fit(g, font, Component.literal(String.valueOf((int) v[i])), x + 16, 9, per - 17, TEXT, 0.9f);
 		}
@@ -592,36 +597,29 @@ public final class MapScreen extends Screen {
 		frame(g, "slot", x, y, ps + 6, ps + 6);
 		g.fill(x + 3, y + 3, x + ps + 3, y + ps + 3, MapTextures.withAlpha(k.color(), 150));
 		icon(g, k.alive ? "crown" : "castle_ruin", x + 5, y + 5, ps - 4);
-		int c1 = x + ps + 12, c1w = Math.min(150, w / 3);
+		boolean wide = w >= 380;
+		int c1 = x + ps + 12, c1w = wide ? Math.min(230, w / 2) : x + w - c1;
 		Ui2.fit(g, font, k.title(), c1, y, c1w, TEXT);
 		Ui2.fit(g, font, k.alive ? k.kingTitle() : Component.translatable("kingdoms.map.fallen"), c1, y + 10, c1w, k.alive ? GOLD : RED, 0.8f);
-		Ui2.fit(g, font, Component.translatable(Era.of(k.era).key()), c1, y + 20, c1w, TEXT, 0.8f);
+		Ui2.fit(g, font, Component.translatable(Era.of(k.era).key()), c1, y + 19, c1w / 2, TEXT, 0.8f);
 		float prog = k.knowNext <= k.knowFrom ? 1 : (k.know - k.knowFrom) / (k.knowNext - k.knowFrom);
-		bar(g, c1, y + 30, c1w, 4, prog, 0xFF5FA8F0);
-		icon(g, "stability", c1, y + 37, 9);
-		bar(g, c1 + 12, y + 40, c1w - 12, 4, k.stability / 100f, k.stability > 50 ? GREEN : k.stability > 25 ? GOLD : RED);
-		// statistics
-		int c2 = c1 + c1w + 10, c2w = Math.min(190, (w - (c2 - x)) / 2);
+		bar(g, c1 + c1w / 2 + 2, y + 21, c1w / 2 - 2, 4, prog, 0xFF5FA8F0);
 		String[][] st = {{"people", String.valueOf((int) k.pop)}, {"soldier", (int) k.soldiers + (k.army >= 1 ? "+" + (int) k.army : "")},
-				{"layer_political", String.valueOf(k.cells)}, {"battle", String.valueOf((int) k.might)}, {"knowledge", String.valueOf((int) k.know)}};
+				{"layer_political", String.valueOf(k.cells)}, {"battle", String.valueOf((int) k.might)}, {"knowledge", String.valueOf((int) k.know)},
+				{"caravan", String.valueOf(ClientRealm.caravans.values().stream().filter(c -> c.kingdom == k.id).count())}};
+		int per = c1w / st.length;
 		for (int i = 0; i < st.length; i++) {
-			int cx2 = c2 + (i % 2) * (c2w / 2 + 2), cy2 = y + (i / 2) * 12;
-			icon(g, st[i][0], cx2, cy2, 10);
-			Ui2.fit(g, font, Component.literal(st[i][1]), cx2 + 13, cy2 + 1, c2w / 2 - 14, TEXT, 0.9f);
+			int cx2 = c1 + i * per;
+			icon(g, st[i][0], cx2, y + 31, 10);
+			Ui2.fit(g, font, Component.literal(st[i][1]), cx2 + 12, y + 32, per - 13, TEXT, 0.85f);
 		}
-		int caravans = 0;
-		for (ClientRealm.CView c : ClientRealm.caravans.values()) if (c.kingdom == k.id) caravans++;
-		icon(g, "caravan", c2 + c2w / 2 + 2, y + 24, 10);
-		Ui2.fit(g, font, Component.literal(String.valueOf(caravans)), c2 + c2w / 2 + 15, y + 25, c2w / 2 - 14, TEXT, 0.9f);
-		// character and relations
-		int c3 = c2 + c2w + 6, c3w = x + w - c3;
-		if (c3w > 60) {
-			int yy = Ui2.wrap(g, font, Component.translatable("kingdoms.map.temper", trait("agg", k.agg), trait("exp", k.exp), trait("dip", k.dip)), c3, y, c3w, MUTED, 0.7f);
-			yy += 2;
-			if (k.wars.length > 0) {
-				yy = Ui2.wrap(g, font, Component.translatable("kingdoms.map.at_war", names(k.wars)), c3, yy, c3w, RED, 0.7f) + 1;
-			}
-			if (k.allies.length > 0) Ui2.wrap(g, font, Component.translatable("kingdoms.map.allies", names(k.allies)), c3, yy, c3w, GREEN, 0.7f);
+		icon(g, "stability", c1, y + 45, 9);
+		bar(g, c1 + 12, y + 48, c1w - 12, 4, k.stability / 100f, k.stability > 50 ? GREEN : k.stability > 25 ? GOLD : RED);
+		if (wide) {
+			int c3 = c1 + c1w + 10, c3w = x + w - c3;
+			int yy = Ui2.wrap(g, font, Component.translatable("kingdoms.map.temper", trait("agg", k.agg), trait("exp", k.exp), trait("dip", k.dip)), c3, y, c3w, MUTED, 0.75f) + 3;
+			if (k.wars.length > 0) yy = Ui2.wrap(g, font, Component.translatable("kingdoms.map.at_war", names(k.wars)), c3, yy, c3w, RED, 0.75f) + 2;
+			if (k.allies.length > 0) Ui2.wrap(g, font, Component.translatable("kingdoms.map.allies", names(k.allies)), c3, yy, c3w, GREEN, 0.75f);
 		}
 	}
 
@@ -733,7 +731,7 @@ public final class MapScreen extends Screen {
 				List<Component> lines = new ArrayList<>();
 				lines.add(Component.translatable("kingdoms.map.caravan").withColor(GOLD));
 				if (k != null) lines.add(k.title().copy().withColor(k.color()));
-				lines.add(Component.translatable("kingdoms.map.cargo", amt, Component.translatable("kingdoms.good." + com.dantemorrigan.kingdoms.sim.Caravan.GOODS[Math.floorMod(type, 4)])).withColor(MUTED));
+				lines.add(Component.translatable("kingdoms.map.cargo", amt, Component.translatable("kingdoms.good." + com.dantemorrigan.kingdoms.sim.Caravan.GOODS[Math.floorMod(type, 5)])).withColor(MUTED));
 				lines.add(Component.translatable(c.returning ? "kingdoms.map.caravan_home" : "kingdoms.map.caravan_out").withColor(MUTED));
 				tooltipLines(g, lines, mx, my);
 				return;

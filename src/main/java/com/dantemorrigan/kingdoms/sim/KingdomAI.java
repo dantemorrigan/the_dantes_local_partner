@@ -160,18 +160,18 @@ public final class KingdomAI {
 		gold += land[Terrain.BADLANDS] * 0.03f + land[Terrain.DESERT] * 0.01f;
 		// Taxes and learning grow with the people, shrink with unrest.
 		float order = 0.4f + k.stability / 160f;
-		gold += k.population * 0.012f * order;
+		gold += k.population * 0.032f * order;
 		know += k.population * 0.018f * order;
 
 		float eat = k.population * 0.06f + k.soldiers * 0.07f + armySoldiers(r, k) * 0.1f;
 		int built = 0;
 		for (Settlement s : r.settlementsOf(k.id)) built += s.buildings.size();
-		float upkeep = built * 0.045f + k.cells * 0.012f;
+		float upkeep = built * 0.02f + k.cells * 0.005f;
 		k.food += food - eat;
-		k.wood += wood - k.population * 0.012f;
-		k.stone += stone - k.cells * 0.004f;
+		k.wood += wood - k.population * 0.02f;
+		k.stone += stone - k.cells * 0.01f;
 		k.iron += iron - (k.soldiers + armySoldiers(r, k)) * 0.01f * k.era;
-		k.gold += gold - (k.soldiers + armySoldiers(r, k)) * 0.035f - upkeep;
+		k.gold += gold - (k.soldiers + armySoldiers(r, k)) * 0.025f - upkeep;
 		k.knowledge += know;
 
 		// People.

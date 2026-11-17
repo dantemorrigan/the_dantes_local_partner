@@ -117,15 +117,18 @@ public class KingdomsTest implements FabricClientGameTest {
 
 			// 5b. An army in the flesh: soldiers stand in the world, march and besiege.
 			server.runOnServer(s -> KingdomsMod.realm().speed = 2);
-			int[] ar = null;
-			for (int tries = 0; tries < 12 && ar == null; tries++) {
-				ar = server.computeOnServer(s -> {
-					Realm r = KingdomsMod.realm();
-					for (Army a : r.armies.values()) if (a.soldiers >= 3) return new int[]{Math.round(r.originX + a.x * Realm.CELL), Math.round(r.originZ + a.z * Realm.CELL)};
-					return null;
-				});
-				if (ar == null) ctx.waitTicks(40);
-			}
+			// Two armies at war meet next to the first kingdom's capital: a real battle.
+			int[] ar = ids.size() < 2 ? null : server.computeOnServer(s -> {
+				Realm r = KingdomsMod.realm();
+				Settlement c = r.capitalOf(r.kingdoms.get(ids.get(0)));
+				if (c == null) return null;
+				var p = s.getPlayerList().getPlayers().getFirst();
+				GodPowers.act(p, "war", ids.get(0), ids.get(1), 0, 0);
+				GodPowers.act(p, "army", ids.get(0), ids.get(1), c.x + 24, c.z + 24);
+				GodPowers.act(p, "army", ids.get(1), ids.get(0), c.x + 40, c.z + 24);
+				r.speed = 2;
+				return new int[]{c.x + 30, c.z + 24};
+			});
 			if (ar != null) {
 				ctx.setScreen(() -> null);
 				final int[] fa = ar;

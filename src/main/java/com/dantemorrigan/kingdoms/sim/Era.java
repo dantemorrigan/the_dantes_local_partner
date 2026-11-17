@@ -2,7 +2,7 @@ package com.dantemorrigan.kingdoms.sim;
 
 /** Ages a kingdom passes through. Each one changes how it builds, how strong its soldiers are and what it may build. */
 public enum Era {
-	TRIBAL(0, 1.0f), FEUDAL(200, 1.6f), CASTLE(800, 2.4f), RENAISSANCE(2000, 3.4f), INDUSTRIAL(4400, 5.0f);
+	TRIBAL(0, 1.0f), FEUDAL(150, 1.6f), CASTLE(600, 2.4f), RENAISSANCE(1500, 3.4f), INDUSTRIAL(3400, 5.0f);
 
 	/** Knowledge needed to enter this era. */
 	public final int knowledge;

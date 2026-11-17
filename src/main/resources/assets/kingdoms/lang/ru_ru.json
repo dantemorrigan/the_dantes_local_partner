@@ -276,6 +276,7 @@
  "kingdoms.good.wood": "дерево",
  "kingdoms.good.stone": "камень",
  "kingdoms.good.iron": "железо",
+ "kingdoms.good.gold": "золото",
  "kingdoms.citizen.4": "Торговец · %s",
  "kingdoms.citizen.caravan": "Караван · %s (%s)",
  "kingdoms.map.pick_hint": "Кликни по земле, чтобы выбрать королевство",

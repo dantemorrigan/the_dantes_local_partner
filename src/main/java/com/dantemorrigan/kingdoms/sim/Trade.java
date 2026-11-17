@@ -18,7 +18,8 @@ public final class Trade {
 			case 0 -> k.food;
 			case 1 -> k.wood;
 			case 2 -> k.stone;
-			default -> k.iron;
+			case 3 -> k.iron;
+			default -> k.gold;
 		};
 	}
 
@@ -27,7 +28,8 @@ public final class Trade {
 			case 0 -> k.food = Math.max(0, k.food + v);
 			case 1 -> k.wood = Math.max(0, k.wood + v);
 			case 2 -> k.stone = Math.max(0, k.stone + v);
-			default -> k.iron = Math.max(0, k.iron + v);
+			case 3 -> k.iron = Math.max(0, k.iron + v);
+			default -> k.gold = Math.max(0, k.gold + v);
 		}
 	}
 
@@ -37,7 +39,8 @@ public final class Trade {
 			case 0 -> 60 + k.population * 2.2f;
 			case 1 -> 80 + k.cells * 0.8f;
 			case 2 -> 60 + k.cells * 0.6f;
-			default -> k.era >= 2 ? 40 + k.soldiers * 2 : 10;
+			case 3 -> 30 + k.soldiers * 2 + k.era * 10;
+			default -> 60 + k.soldiers * 4 + k.cells * 0.6f;
 		};
 		return base;
 	}
@@ -67,7 +70,7 @@ public final class Trade {
 		// the most overflowing good and the most lacking one
 		int give = -1, want = -1;
 		float bestSurplus = 25, bestLack = 0;
-		for (int t = 0; t < 4; t++) {
+		for (int t = 0; t < 5; t++) {
 			float over = stock(k, t) - need(k, t) * 1.15f, lack = need(k, t) - stock(k, t);
 			if (over > bestSurplus) {
 				bestSurplus = over;
@@ -78,7 +81,7 @@ public final class Trade {
 				want = t;
 			}
 		}
-		if (give < 0 || want < 0 || give == want) return;
+		if (give < 0 || want < 0 || give == want || give == 4) return;
 		Settlement from = null;
 		for (Settlement s : r.settlementsOf(k.id)) if (hasMarket(r, s) && (from == null || s.capital)) from = s;
 		if (from == null) return;
@@ -87,7 +90,7 @@ public final class Trade {
 		for (Settlement s : r.settlements.values()) {
 			Kingdom o = r.kingdoms.get(s.kingdom);
 			if (o == null || !o.alive || o == k || !hasMarket(r, s) || k.wars.contains(o.id) || k.relation(o.id) < -25) continue;
-			if (stock(o, want) < need(o, want) * 0.7f || stock(o, give) > need(o, give) * 1.1f) continue;
+			if (stock(o, want) < need(o, want) * 0.8f || stock(o, want) < 25) continue;
 			double dist = Math.hypot(s.x - from.x, s.z - from.z) / Realm.CELL;
 			if (dist > 90) continue;
 			float score = (float) (price(o, give) / Math.max(0.1f, price(k, give)) * 10 - dist * 0.08f) + k.relation(o.id) * 0.02f;
@@ -99,7 +102,7 @@ public final class Trade {
 		if (best == null) return;
 		int[] path = route(r, r.cellX(from.x), r.cellZ(from.z), r.cellX(best.x), r.cellZ(best.z));
 		if (path == null || path.length < 3) return;
-		int amt = (int) Math.min(bestSurplus, 30 + k.era * 15);
+		int amt = (int) Math.min(bestSurplus, 40 + k.era * 20);
 		Caravan c = new Caravan(r.nextId++, k.id, from.id, best.id);
 		c.path = path;
 		c.giveType = give;
@@ -181,6 +184,7 @@ public final class Trade {
 	/** Barter at the far market: our goods for theirs, at their scarcity prices. */
 	static void arrive(Realm r, Caravan c, Kingdom k, Kingdom o) {
 		float value = c.giveAmt * price(o, c.giveType);
+		c.getAmt = 0;
 		float theirs = price(o, c.getType);
 		int got = (int) Math.min(stock(o, c.getType) * 0.5f, value * 0.9f / Math.max(0.05f, theirs));
 		add(o, c.giveType, c.giveAmt);
@@ -198,6 +202,7 @@ public final class Trade {
 		k.gold += c.profit;
 		Settlement from = r.settlements.get(c.from);
 		float v = c.getAmt * Caravan.PRICE[c.getType];
+		if (c.getType == 4) v = c.getAmt;
 		if (v >= 40 && from != null) {
 			Kingdom o = r.kingdoms.get(r.settlements.get(c.to) == null ? 0 : r.settlements.get(c.to).kingdom);
 			r.log(1, from.x, from.z, "kingdoms.log.trade_done", Chronicle.kingdom(k), String.valueOf(c.getAmt),

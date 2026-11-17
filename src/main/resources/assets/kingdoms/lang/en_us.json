@@ -276,6 +276,7 @@
  "kingdoms.good.wood": "wood",
  "kingdoms.good.stone": "stone",
  "kingdoms.good.iron": "iron",
+ "kingdoms.good.gold": "gold",
  "kingdoms.citizen.4": "Merchant of %s",
  "kingdoms.citizen.caravan": "Caravan of %s (%s)",
  "kingdoms.map.pick_hint": "Click a land to select a kingdom",

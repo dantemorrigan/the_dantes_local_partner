@@ -7,9 +7,9 @@ import net.minecraft.nbt.CompoundTag;
  * and brings the exchange home; it can be turned back or plundered when a war breaks out along the way.
  */
 public final class Caravan {
-	public static final String[] GOODS = {"food", "wood", "stone", "iron"};
+	public static final String[] GOODS = {"food", "wood", "stone", "iron", "gold"};
 	/** Gold value of one unit of each good. */
-	public static final float[] PRICE = {0.5f, 0.4f, 0.5f, 2.0f};
+	public static final float[] PRICE = {0.5f, 0.4f, 0.5f, 2.0f, 1.0f};
 
 	public final int id;
 	public int kingdom, from, to;
