@@ -44,31 +44,75 @@ public final class Population {
 			if (!near) continue;
 			fill(level, realm, s, k, list, false);
 			archers(level, realm, s, k);
+			tags(list, players);
+			for (Settlement.Building bd : s.buildings) {
+				List<CitizenEntity> posts = ARCHERS.get(bd);
+				if (posts != null) tags(posts, players);
+			}
 		}
 	}
 
-	/** Every finished tower has bowmen on its top. */
+	/** Bowmen on every finished tower, a guard on each side of every gate passage and bowmen on the gate towers. */
 	static void archers(ServerLevel level, Realm realm, Settlement s, Kingdom k) {
 		for (Settlement.Building b : s.buildings) {
-			if (b.type != BuildingType.WALL_TOWER) continue;
+			boolean tower = b.type == BuildingType.WALL_TOWER, gate = b.type == BuildingType.GATE;
+			if (!tower && !gate) continue;
 			List<CitizenEntity> list = ARCHERS.computeIfAbsent(b, q -> new ArrayList<>());
 			list.removeIf(c -> c.isRemoved() || !c.isAlive());
-			if (!b.done() || b.y == Integer.MIN_VALUE || Constructor.pending(realm, s, b) || b.ruined) {
-				continue;
-			}
-			int want = s.capital && k.era >= 2 ? 2 : 1;
+			if (!b.done() || b.y == Integer.MIN_VALUE || Constructor.pending(realm, s, b) || b.ruined) continue;
+			int want = tower ? (s.capital && k.era >= 2 ? 2 : 1) : 6;
+			var rot = Constructor.rotation(s, b);
+			int style = Math.min(4, b.style);
 			while (list.size() < want) {
+				int j = list.size();
+				// local coordinates of the post, and the way the sentry faces (local direction dx, dz)
+				int lx, lz, ly;
+				int fdx = 0, fdz = 0;
+				boolean archer;
+				if (tower) {
+					lx = 5;
+					lz = 5;
+					ly = 10 + 2 * style;
+					archer = true;
+				} else if (j < 2) { // bowmen on the two gate towers
+					lx = j == 0 ? 2 : 9;
+					lz = 5;
+					ly = WallWorks.height(style) + 5;
+					archer = true;
+				} else { // two guards at each mouth of the passage
+					int g = j - 2;
+					lx = g % 2 == 0 ? 4 : 7;
+					boolean front = g < 2;
+					lz = front ? 1 : 10;
+					ly = 1;
+					fdz = front ? -1 : 1;
+					archer = false;
+				}
 				CitizenEntity c = KingdomsMod.CITIZEN.create(level, EntitySpawnReason.EVENT);
 				if (c == null) break;
-				int[] t = Constructor.rotate(5 + list.size() % 2 - (list.size() % 2) , 5, Constructor.rotation(s, b));
-				double x = b.px + t[0] + 0.5, y = b.y + 9, z = b.pz + t[1] + 0.5;
+				int[] t = Constructor.rotate(lx, lz, rot);
+				double x = b.px + t[0] + 0.5, y = b.y + ly, z = b.pz + t[1] + 0.5;
 				c.snapTo(x, y, z, 0f, 0f);
 				c.setup(k, s, CitizenEntity.SOLDIER);
-				c.makeArcher();
-				c.setPost(x, y, z);
+				if (archer) c.makeArcher();
+				float yaw = 0;
+				if (!archer) {
+					int[] a0 = Constructor.rotate(lx, lz, rot), a1 = Constructor.rotate(lx + fdx, lz + fdz, rot);
+					yaw = (float) Math.toDegrees(Math.atan2(-(a1[0] - a0[0]), a1[1] - a0[1]));
+				}
+				c.setPost(x, y, z, yaw);
 				level.addFreshEntity(c);
 				list.add(c);
 			}
+		}
+	}
+
+	/** Names are shown only for a king, a commander, or up close: a crowd must not hide the town behind its signs. */
+	static void tags(List<CitizenEntity> list, List<ServerPlayer> players) {
+		for (CitizenEntity c : list) {
+			boolean show = c.role() == CitizenEntity.KING || c.commander;
+			if (!show) for (ServerPlayer p : players) if (p.distanceToSqr(c) < 64) show = true;
+			c.setCustomNameVisible(show);
 		}
 	}
 

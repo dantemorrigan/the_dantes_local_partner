@@ -34,7 +34,7 @@ public final class Road {
 	}
 
 	public void setBit(int i) {
-		if (bits.length < (blocks() + 63) / 64) bits = java.util.Arrays.copyOf(bits, (blocks() + 63) / 64);
+		if (bits.length <= i >> 6) bits = java.util.Arrays.copyOf(bits, (i >> 6) + 8);
 		bits[i >> 6] |= 1L << (i & 63);
 	}
 

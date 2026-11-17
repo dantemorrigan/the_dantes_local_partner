@@ -78,6 +78,8 @@ public class CitizenEntity extends PathfinderMob implements RangedAttackMob, Mer
 	/** A fixed post (a tower top): the soldier stands here and shoots. */
 	public boolean hasPost;
 	public double postX, postY, postZ;
+	public float postYaw;
+	public boolean postFacing;
 	private Player tradingPlayer;
 	private MerchantOffers offers;
 
@@ -383,6 +385,23 @@ public class CitizenEntity extends PathfinderMob implements RangedAttackMob, Mer
 		this.hasSite = true;
 		this.siteX = x;
 		this.siteZ = z;
+	}
+
+	public void setPost(double x, double y, double z, float yaw) {
+		setPost(x, y, z);
+		this.postYaw = yaw;
+		this.postFacing = true;
+	}
+
+	@Override
+	protected void customServerAiStep(ServerLevel level) {
+		super.customServerAiStep(level);
+		// a sentry on his post stands facing the way he was posted
+		if (postFacing && hasPost && getTarget() == null && tickCount % 10 == 0 && distanceToSqr(postX, postY, postZ) < 3) {
+			this.setYRot(postYaw);
+			this.setYHeadRot(postYaw);
+			this.setYBodyRot(postYaw);
+		}
 	}
 
 	public void setPost(double x, double y, double z) {

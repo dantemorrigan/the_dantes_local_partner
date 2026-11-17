@@ -44,32 +44,78 @@ public final class RoadWorks {
 		keysVersion = -1;
 	}
 
-	/** Block positions along a road: from the centre of its first cell to the centre of its last, one per block. */
+	/** Block positions along a road: from the centre of its first town through the gate, over land, to the gate of the last. */
 	static int[][] points(Realm r, Road ro) {
 		int[][] cached = POINTS.get(ro.id);
-		if (cached != null && cached[0].length == ro.blocks()) return cached;
-		int n = ro.blocks();
-		int[] xs = new int[n], zs = new int[n];
-		int i = 0;
+		if (cached != null) return cached;
+		List<int[]> pts = new java.util.ArrayList<>();
 		for (int c = 0; c < ro.cells.length; c++) {
 			int cx = ro.cells[c] % Realm.N, cz = ro.cells[c] / Realm.N;
 			int bx = r.originX + cx * Realm.CELL + Realm.CELL / 2, bz = r.originZ + cz * Realm.CELL + Realm.CELL / 2;
 			if (c == 0) {
-				xs[i] = bx;
-				zs[i++] = bz;
+				pts.add(new int[]{bx, bz});
 				continue;
 			}
 			int pcx = ro.cells[c - 1] % Realm.N, pcz = ro.cells[c - 1] / Realm.N;
 			int dx = Integer.signum(cx - pcx), dz = Integer.signum(cz - pcz);
-			for (int s = 1; s <= Realm.CELL; s++) {
-				if (i >= n) break;
-				xs[i] = bx - dx * (Realm.CELL - s);
-				zs[i++] = bz - dz * (Realm.CELL - s);
-			}
+			for (int s = 1; s <= Realm.CELL; s++) pts.add(new int[]{bx - dx * (Realm.CELL - s), bz - dz * (Realm.CELL - s)});
+		}
+		Settlement sa = r.settlements.get(ro.a), sb = r.settlements.get(ro.b);
+		if (sa != null) pts = approach(pts, sa);
+		if (sb != null) {
+			java.util.Collections.reverse(pts);
+			pts = approach(pts, sb);
+			java.util.Collections.reverse(pts);
+		}
+		int n = pts.size();
+		int[] xs = new int[n], zs = new int[n];
+		for (int i = 0; i < n; i++) {
+			xs[i] = pts.get(i)[0];
+			zs[i] = pts.get(i)[1];
 		}
 		int[][] p = {xs, zs};
 		POINTS.put(ro.id, p);
 		return p;
+	}
+
+	/** A road enters a town by its gate: centre, straight out through the gate, then over to where the road leaves the wall. */
+	static List<int[]> approach(List<int[]> pts, Settlement s) {
+		int R = s.wallR;
+		int k = -1;
+		for (int i = 0; i < pts.size(); i++) {
+			if (Math.max(Math.abs(pts.get(i)[0] - s.x), Math.abs(pts.get(i)[1] - s.z)) > R + 2) {
+				k = i;
+				break;
+			}
+		}
+		if (k < 0) return pts;
+		int[] q = pts.get(k);
+		int dx = q[0] - s.x, dz = q[1] - s.z;
+		int gx = 0, gz = 0;
+		if (Math.abs(dx) >= Math.abs(dz)) gx = dx >= 0 ? 1 : -1;
+		else gz = dz >= 0 ? 1 : -1;
+		List<int[]> out = new java.util.ArrayList<>();
+		int x = s.x, z = s.z;
+		out.add(new int[]{x, z});
+		// out through the gate and a little beyond it
+		for (int i = 0; i < R + 10; i++) {
+			x += gx;
+			z += gz;
+			out.add(new int[]{x, z});
+		}
+		// over to the point where the road leaves the wall: first along the wall, then straight on
+		while (gx != 0 ? z != q[1] : x != q[0]) {
+			if (gx != 0) z += Integer.signum(q[1] - z);
+			else x += Integer.signum(q[0] - x);
+			out.add(new int[]{x, z});
+		}
+		while (gx != 0 ? x != q[0] : z != q[1]) {
+			if (gx != 0) x += Integer.signum(q[0] - x);
+			else z += Integer.signum(q[1] - z);
+			out.add(new int[]{x, z});
+		}
+		for (int i = k + 1; i < pts.size(); i++) out.add(pts.get(i));
+		return out;
 	}
 
 	/** True where a road, bridge or rail line runs (walls leave a gap there). */

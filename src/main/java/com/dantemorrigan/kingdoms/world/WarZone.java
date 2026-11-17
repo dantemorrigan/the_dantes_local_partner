@@ -112,6 +112,7 @@ public final class WarZone {
 				continue;
 			}
 			BRAINS.computeIfAbsent(a.id, Squad::new).step(level, r, a, k, squad);
+			Population.tags(squad, players);
 		}
 		caravans(level, r, players);
 	}
